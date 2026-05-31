@@ -1,0 +1,57 @@
+# CLAUDE.md
+
+Experimental **Arduino CLI** firmware that turns a Waveshare **ESP32-S3-Touch-AMOLED-1.8** into a USB **FIDO/WebAuthn lab key**. It is a learning prototype: not FIDO certified, not production hardened, and for use only with disposable test accounts and lab relying parties (e.g. WebAuthn.io). Keep security language blunt and conservative — see [SECURITY.md](SECURITY.md).
+
+## Architecture
+
+Data flows host → USB → transport → protocol → crypto/storage, with the AMOLED reflecting state:
+
+```
+esp32-key.ino → src/App (Esp32KeyApp, orchestrates subsystems)
+  USB        src/UsbFidoHid    HID enumeration, 64-byte reports, FIDO usage page
+  Transport  src/CtapHid       CTAPHID framing: INIT/PING/CBOR/MSG/CANCEL/WINK/KEEPALIVE
+  Protocol   src/Ctap2         makeCredential / getAssertion / getNextAssertion /
+                               credential mgmt / guarded reset / legacy CTAP1/U2F
+             src/CborCodec     CBOR encode/decode used by Ctap2
+  Crypto     src/CryptoProvider  ES256 / P-256 keygen + signing
+  Storage    src/CredentialStore NVS, versioned + checksummed records, fixed cap
+  Presence   src/UserPresence  BOOT / GPIO0 confirmation
+  UX         src/AmoledUx + src/Diagnostics  status / diagnostic screens
+```
+
+`src/Ctap2.cpp` is by far the largest module and holds most protocol logic. Configuration truth lives in [sketch.yaml](sketch.yaml) (FQBN, ESP32 core `3.3.8`, `fido-lab` / `debug-cdc` profiles) and [src/BuildConfig.h](src/BuildConfig.h) (device name, pins, limits).
+
+## Key invariants
+
+- **Arduino CLI only** — no PlatformIO, ESP-IDF scaffolding, or CMake conversion.
+- USB exposes **only** the FIDO HID interface — never keyboard, mouse, mass-storage, or covert host-control behavior.
+- 64-byte HID reports (`kHidReportSize`) on the FIDO usage page; **ES256 / P-256 only**.
+- Credential cap is `kMaxCredentials = 8`; storage is deterministic when full.
+- **BOOT / GPIO0** (`kBootButtonPin = 0`) is the user-presence button for register/sign/reset.
+- No CTAP `authenticatorClientPIN` / user verification yet — keep WebAuthn UV set to `discouraged`.
+
+## Commands
+
+```sh
+# Compile (primary profile for browser/WebAuthn testing)
+arduino-cli compile --profile fido-lab /Users/cypher/Documents/GitHub/esp32-key
+
+# Flash (find the port with `arduino-cli board list`)
+arduino-cli upload --profile fido-lab -p /dev/cu.usbmodemXXXX /Users/cypher/Documents/GitHub/esp32-key
+```
+
+Use `debug-cdc` only for bring-up that needs serial logs. Full flash/probe/browser steps are in [README.md](README.md); host tests run through [tools/ctaphid_probe.py](tools/ctaphid_probe.py) (e.g. `--list`, `--ctap2-roundtrip`, `--resident-roundtrip`). Press BOOT once when a probe or browser waits for user presence.
+
+## Proof levels
+
+Compile ≠ upload ≠ enumerate ≠ probe ≠ browser. **Never claim hardware or browser success from compile output alone** — verify at the level you actually reached.
+
+## Before changing USB, crypto, or storage
+
+Read [SECURITY.md](SECURITY.md) first — those paths define the device's safety boundary. When firmware behavior changes, keep the relevant docs in sync ([README.md](README.md), [SECURITY.md](SECURITY.md), [docs/bringup/arduino-cli-mvp.md](docs/bringup/arduino-cli-mvp.md), [docs/roadmap/solo-like-lab-plus.md](docs/roadmap/solo-like-lab-plus.md), [docs/specs/esp32-s3-fido2-webauthn-authenticator-spec.md](docs/specs/esp32-s3-fido2-webauthn-authenticator-spec.md)).
+
+## Coding-agent rules
+
+The full project contract, USB-safety rules, security-language rules, hardware workflow, and editing/documentation rules live in AGENTS.md and are imported here:
+
+@AGENTS.md
