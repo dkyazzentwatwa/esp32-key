@@ -1332,11 +1332,13 @@ size_t Ctap2::handleMakeCredential(const uint8_t *payload, size_t len, uint8_t *
     return writeStatus(Ctap2Status::kInvalidCbor, response, responseCapacity);
   }
   if (isSyntheticRpId(req.rpId)) {
-    // Chrome/macOS issues makeCredential to the reserved ".dummy" RP only to
-    // collect a touch or probe privately. Answer silently with no-credentials
-    // so no BOOT prompt appears and the active real-RP screen is left intact.
-    ux_.trace("makeCredential", req.rpId, "no-credentials 0x2e", true);
-    return writeStatus(Ctap2Status::kNoCredentials, response, responseCapacity);
+    // Chrome/macOS can issue makeCredential to the reserved ".dummy" RP as a
+    // synthetic touch-collection step after a real ceremony. Collect BOOT, but
+    // never create storage or assertion state for this reserved RP.
+    const bool touched = waitForPresence("SYNTHETIC TOUCH", req.rpId);
+    const char *status = touched ? "touch denied 0x27" : (canceled_ ? "canceled 0x27" : "timeout 0x27");
+    ux_.trace("makeCredential", req.rpId, status, true);
+    return writeStatus(Ctap2Status::kOperationDenied, response, responseCapacity);
   }
   bool userVerified = false;
   if (req.requireUserVerification) {
@@ -1634,13 +1636,17 @@ size_t Ctap2::writeAssertionFromIdentity(const AssertionIdentity &identity, cons
   writer.writeUInt(3);
   writer.writeBytes(signature, signatureLen);
   if (identity.hasUser) {
-    const bool hasDisplay = identity.userDisplayName && identity.userDisplayName[0];
+    const bool includeIdentifyingUserInfo = userVerified;
+    const bool hasName = includeIdentifyingUserInfo && identity.userName && identity.userName[0];
+    const bool hasDisplay = includeIdentifyingUserInfo && identity.userDisplayName && identity.userDisplayName[0];
     writer.writeUInt(4);
-    writer.writeMap(hasDisplay ? 3 : 2);
+    writer.writeMap(1 + (hasName ? 1 : 0) + (hasDisplay ? 1 : 0));
     writer.writeText("id");
     writer.writeBytes(identity.userHandle, identity.userHandleLen);
-    writer.writeText("name");
-    writer.writeText(identity.userName ? identity.userName : "");
+    if (hasName) {
+      writer.writeText("name");
+      writer.writeText(identity.userName);
+    }
     if (hasDisplay) {
       writer.writeText("displayName");
       writer.writeText(identity.userDisplayName);

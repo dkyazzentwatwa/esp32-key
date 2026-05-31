@@ -18,6 +18,7 @@ enum class Ctap2Status : uint8_t {
   kInvalidCbor = 0x12,
   kMissingParameter = 0x14,
   kCredentialExcluded = 0x19,
+  kOperationDenied = 0x27,
   kKeyStoreFull = 0x28,
   kUnsupportedOption = 0x2b,
   kKeepaliveCancel = 0x2d,

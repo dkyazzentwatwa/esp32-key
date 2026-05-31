@@ -201,17 +201,16 @@ Required or likely required CTAP2 support:
 | --- | --- | --- |
 | `authenticatorGetInfo` | Required | Advertise versions, extensions/options, transports, algorithms, max message size, and user-presence-only limits. |
 | `authenticatorMakeCredential` | Required | Parse clientDataHash, RP, user, pubKeyCredParams, excludeList, options, and extensions enough to reject unsupported features cleanly. |
-| `authenticatorGetAssertion` | Required | Support non-resident allow-list lookup, user presence, authenticator data, and ES256 signature. |
-| `authenticatorReset` | Required but guarded | Require strong physical confirmation and clear AMOLED warning; erase all credentials. |
-| `authenticatorClientPIN` | Deferred | Needed for PIN/UV and many modern passkey flows, but too much for MVP. Return unsupported and advertise no client PIN. |
-| Credential management | Deferred | Only needed after resident/discoverable credentials exist. |
+| `authenticatorGetAssertion` | Required | Support non-resident allow-list lookup, discoverable credentials, user presence, authenticator data, ES256 signature, and resident-user privacy when UV is false. |
+| `authenticatorReset` | Required but guarded | Require strong physical confirmation and clear AMOLED warning; erase credentials, lab PIN state, and rotate the stateless master secret. |
+| `authenticatorClientPIN` | Lab implemented | Host-entered PIN protocol 2 for UV-required lab flows; no device-side PIN entry and no hardened PIN storage. |
+| Credential management | Lab implemented | Minimal resident-credential enumeration, delete, and user-info update coverage for lab management. |
 | Selection, bio enrollment, large blobs | Deferred | Not needed for MVP. |
 
 Defer these features:
 
-- Client PIN and PIN/UV auth protocols.
-- Resident/discoverable credentials.
-- Credential management.
+- Browser validation of host PIN and UV-required flows across Chrome, Firefox, and Safari.
+- Hardened PIN storage, local biometrics, and production user-verification claims.
 - Large blobs and blob-key storage.
 - `hmac-secret`.
 - Enterprise attestation.
@@ -299,8 +298,8 @@ Credential record format:
 | `rp_id` | UTF-8 string | Relying party ID, such as `example.com`. |
 | `rp_id_hash` | 32 bytes | SHA-256 of RP ID; stored to avoid recomputing and for exact matching. |
 | `user_handle` | byte string | User handle from makeCredential. |
-| `user_name` | optional string | Display-only hint for AMOLED UI; do not rely on it for security. |
-| `display_name` | optional string | Display-only hint for consent screens. |
+| `user_name` | optional string | Display-only hint for AMOLED UI; do not rely on it for security. Do not return it in assertions unless UV/PIN completed. |
+| `display_name` | optional string | Display-only hint for consent screens. Do not return it in assertions unless UV/PIN completed. |
 | `private_key` | P-256 scalar or wrapped blob | Credential private key. |
 | `public_key` | P-256 x/y or COSE_Key | Optional cached public key for diagnostics/reconstruction. |
 | `sign_count` | uint32 or uint64 | Signature counter. |
@@ -437,7 +436,7 @@ Attacker capabilities to consider:
 - Malicious firmware flashed before hardening.
 - Power loss during credential write.
 - User confusion caused by poor UI.
-- Relying parties requiring PIN/UV/resident credentials.
+- Relying parties requiring production-grade PIN/UV, unsupported extensions, or stricter conformance than this lab slice provides.
 
 What ESP32-S3 can help with:
 
@@ -465,7 +464,7 @@ Differences from real certified security keys:
 - No secure element in MVP.
 - No mature anti-tamper design.
 - No enterprise attestation trust chain.
-- No robust PIN/UV implementation in MVP.
+- Lab-only host PIN path, with no hardened PIN storage or built-in UV.
 - No proven CTAP conformance.
 - No production key-injection or manufacturing controls.
 
@@ -572,7 +571,7 @@ Definition of done for MVP:
 - Device can register an ES256 non-resident credential with at least one test relying party.
 - Device can sign in with that credential after BOOT confirmation.
 - Reset requires physical confirmation and wipes credentials.
-- Unsupported PIN/UV/resident/extension requests fail cleanly.
+- Unsupported extension and production-grade UV requests fail cleanly; lab PIN and resident flows are probe-covered.
 - No secret-bearing logs are present in the `fido-lab` profile.
 - Documentation clearly says compile-ready, flashed, and field-proven states are separate proof levels.
 

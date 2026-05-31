@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Small CTAPHID bring-up probe for the ESP32-S3 AMOLED FIDO lab key.
 
-Requires the `hid` Python package from hidapi bindings:
+Requires the cython `hidapi` package, which imports as `hid`:
 
-    python3 -m pip install hid
+    python3 -m pip install hidapi cbor2 cryptography
 
 This script only talks to a locally attached FIDO HID authenticator that exposes
 the FIDO usage page. It sends CTAPHID_INIT, CTAPHID_PING, and CTAP2 getInfo.
@@ -18,6 +18,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 from typing import Iterable
 
 try:
@@ -571,10 +572,33 @@ def run_dummy_rp_probe(dev, cid: int, cbor2) -> None:
     print("Sending synthetic .dummy getAssertion; device must reject without BOOT.")
     cmd, body = send_cbor_wait(dev, cid, make_ctap2_assertion_request(cbor2, None, rp_id=".dummy"))
     if cmd != CTAPHID_CBOR or not body:
-      raise RuntimeError("dummy RP probe failed")
+        raise RuntimeError("dummy RP getAssertion probe failed")
     print(f"dummy getAssertion status=0x{body[0]:02x}")
     if body[0] != 0x2E:
-        raise RuntimeError("dummy RP was not rejected as no-credentials")
+        raise RuntimeError("dummy RP getAssertion was not rejected as no-credentials")
+
+
+def run_dummy_makecred_probe(dev, cid: int, cbor2) -> None:
+    print("Sending synthetic .dummy makeCredential; PRESS BOOT when prompted.")
+    started = time.monotonic()
+    write_message(dev, cid, CTAPHID_CBOR, make_ctap2_registration_request(cbor2, rp_id=".dummy"))
+    _, cmd, body = read_message(dev, timeout_ms=3000)
+    if cmd != CTAPHID_KEEPALIVE:
+        raise RuntimeError("dummy RP makeCredential returned before user-presence keepalive")
+    print(f"KEEPALIVE status=0x{body[0]:02x}; press BOOT now")
+    while True:
+        _, cmd, body = read_message(dev, timeout_ms=35000)
+        if cmd == CTAPHID_KEEPALIVE:
+            print(f"KEEPALIVE status=0x{body[0]:02x}; press BOOT now")
+            continue
+        break
+    if cmd != CTAPHID_CBOR or not body:
+        raise RuntimeError("dummy RP makeCredential probe failed")
+    print(f"dummy makeCredential status=0x{body[0]:02x}")
+    if body[0] != 0x27:
+        raise RuntimeError("dummy RP makeCredential did not return operation-denied after touch")
+    if time.monotonic() - started > 25:
+        raise RuntimeError("dummy RP makeCredential timed out instead of collecting BOOT")
 
 
 def run_preflight_probe(dev, cid: int, cbor2) -> None:
@@ -862,7 +886,26 @@ def _login_verify_path(dev, cid: int, cbor2, rp_id: str, label: str, resident: b
     else:
         print("  signature VERIFIES over authData||clientDataHash OK")
 
-    # 3d. Report credential descriptor (key 1) and user (key 4) presence.
+    # 3d. Check resident-user privacy under UV=false. Chrome rejects assertions
+    # that expose identifying user strings without user verification.
+    user_entity = assertion.get(4)
+    if user_entity is None:
+        if resident:
+            return fail("resident assertion missing user entity (key 4)")
+    else:
+        if not isinstance(user_entity, dict):
+            return fail("user entity (key 4) is not a CBOR map")
+        user_key_names = ", ".join(str(k) for k in sorted(user_entity.keys(), key=str))
+        if "id" not in user_entity:
+            return fail("user entity missing id")
+        if not (flags & 0x04):
+            leaked = [k for k in ("name", "displayName", "icon") if k in user_entity]
+            if leaked:
+                return fail(f"user entity leaks identifying fields without UV: {leaked}")
+            print(f"  user entity privacy OK (UV=false, keys=[{user_key_names}])")
+        else:
+            print(f"  user entity OK (UV=true, keys=[{user_key_names}])")
+
     print(f"  key1 (credential descriptor) present: {1 in assertion}; "
           f"key4 (user) present: {4 in assertion}")
 
@@ -903,13 +946,15 @@ def main() -> int:
     parser.add_argument("--cred-mgmt-smoke", action="store_true", help="create, enumerate, and delete a resident credential")
     parser.add_argument("--client-pin-smoke", action="store_true", help="set a test PIN and run UV-required CTAP2")
     parser.add_argument("--dummy-rp-probe", action="store_true", help="verify .dummy RP is rejected without user presence")
+    parser.add_argument("--dummy-makecred-probe", action="store_true",
+                        help="verify .dummy makeCredential collects BOOT then returns operation denied")
     parser.add_argument("--preflight-probe", action="store_true", help="verify up=false silent pre-flight answers without BOOT and clears the UP flag")
     parser.add_argument("--stateless-bulk", nargs="?", type=int, const=10, default=None, metavar="N",
                         help="register N (default 10) non-resident creds to prove the 8-slot cap is gone, then sign/tamper/cross-RP checks")
     parser.add_argument("--stateless-verify", action="store_true",
                         help="register a non-resident cred then cryptographically verify the assertion signature against the registration public key")
     parser.add_argument("--login-verify", action="store_true",
-                        help="Chrome-like login oracle: validate canonical CBOR, authData flags, and cryptographically verify the assertion signature for both non-resident and resident paths")
+                        help="Chrome-like login oracle: validate canonical CBOR, authData flags, resident-user privacy, and assertion signatures for non-resident/resident paths")
     parser.add_argument("--rp-id", default="webauthn.io", help="relying party id to use for --login-verify (default webauthn.io)")
     parser.add_argument("--reset", action="store_true", help="guarded CTAP2 reset; hold BOOT to wipe lab credentials")
     parser.add_argument("--u2f-register", action="store_true", help="send a legacy CTAP1/U2F register request")
@@ -956,6 +1001,7 @@ def main() -> int:
         or args.cred_mgmt_smoke
         or args.client_pin_smoke
         or args.dummy_rp_probe
+        or args.dummy_makecred_probe
         or args.preflight_probe
         or args.stateless_bulk is not None
         or args.stateless_verify
@@ -975,6 +1021,9 @@ def main() -> int:
 
     if args.dummy_rp_probe:
         run_dummy_rp_probe(dev, cid, cbor2)
+
+    if args.dummy_makecred_probe:
+        run_dummy_makecred_probe(dev, cid, cbor2)
 
     if args.preflight_probe:
         run_preflight_probe(dev, cid, cbor2)

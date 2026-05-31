@@ -2,7 +2,7 @@
 
 Experimental Arduino CLI firmware for using the Waveshare ESP32-S3-Touch-AMOLED-1.8 as a USB FIDO/WebAuthn lab authenticator.
 
-This project is a learning prototype. It has completed an end-to-end WebAuthn.io registration flow in local testing, but it is not a certified FIDO authenticator and must not be used to protect important personal, business, financial, cloud, or developer accounts.
+This project is a learning prototype. It has completed Chrome/WebAuthn.io registration and sign-in in local testing for both non-discoverable security-key credentials and discoverable/resident credentials, but it is not a certified FIDO authenticator and must not be used to protect important personal, business, financial, cloud, or developer accounts.
 
 ## Current Status
 
@@ -20,7 +20,7 @@ The firmware currently supports:
 - Standard host-entered CTAP `authenticatorClientPIN` using PIN protocol 2 for lab UV-required flows.
 - Legacy CTAP1/U2F registration and authentication compatibility for direct lab probes, while the main `fido-lab` capability advertisement steers browsers toward CTAP2.
 - ES256/P-256 key generation and signing through Arduino-accessible crypto.
-- Non-resident credential storage in NVS with a small fixed lab credential cap.
+- Stateless non-resident credentials using 33-byte wrapped credential IDs; resident/discoverable credentials still use the small fixed NVS lab store.
 - Versioned, checksummed credential records with deterministic storage-full behavior.
 - BOOT/GPIO0 user-presence confirmation for registration, signing, and reset.
 - AMOLED admin reset screen with credential count, resident count, free-slot/full status, and two-step BOOT wipe confirmation.
@@ -146,6 +146,12 @@ Verify the reserved `.dummy` relying party is rejected silently (must return `0x
 tools/ctaphid_probe.py --dummy-rp-probe
 ```
 
+Verify Chrome's reserved `.dummy` `makeCredential` touch-collection path (press BOOT when prompted; it must create no credential and return `0x27` operation-denied):
+
+```sh
+tools/ctaphid_probe.py --dummy-makecred-probe
+```
+
 Verify silent login pre-flight handling (registers a credential, then checks that an `up=false` assertion answers without BOOT and clears the UP flag, while the real `up=true` assertion still needs BOOT):
 
 ```sh
@@ -156,6 +162,12 @@ Prove non-resident credentials are stateless (register more than the 8-slot stor
 
 ```sh
 tools/ctaphid_probe.py --stateless-bulk 9
+```
+
+Run the Chrome-like login oracle for non-resident and resident paths (checks canonical CBOR, UP flags, resident-user privacy, and ES256 signatures):
+
+```sh
+tools/ctaphid_probe.py --login-verify
 ```
 
 Run a guarded lab credential wipe:
@@ -191,6 +203,12 @@ Recommended WebAuthn.io registration settings:
 - Public key algorithm: ES256
 - Select USB security key when the browser prompts
 
+Browser-proven Chrome/WebAuthn.io settings as of 2026-05-31:
+
+- Non-discoverable path: registration and authentication user verification discouraged, discoverable credential discouraged, ES256, security-key hints for registration and authentication.
+- Discoverable/resident path: registration and authentication user verification discouraged, discoverable credential required, ES256, security-key hints for registration and authentication.
+- Chrome may still show a host PIN prompt even with UV discouraged if a lab PIN is set; the current lab PIN used during bring-up was `123456`.
+
 Expected device flow:
 
 1. Browser opens the USB security-key prompt.
@@ -202,7 +220,9 @@ Expected device flow:
 
 If the browser hangs, check the AMOLED diagnostic text first. It is designed to show whether the host sent a command, the firmware rejected the request, or the USB HID send path failed. When the device returns to the ready screen it also shows the last command, the last relying party, and the last CTAP2 status, and marks synthetic host probes so they can be told apart from real relying-party prompts.
 
-Login is expected to prompt for BOOT exactly once. The browser first runs a silent pre-flight (`getAssertion` with `up=false`) to find which security key holds the credential; the firmware answers that immediately with no BOOT, then the real sign-in prompts for BOOT. Chrome/macOS may also send requests for the reserved `.dummy` relying party; these are answered silently with no-credentials and do not prompt for BOOT or change the on-screen state.
+Login is expected to prompt for BOOT for the real relying-party assertion. The browser first runs a silent pre-flight (`getAssertion` with `up=false`) to find which security key holds the credential; the firmware answers that immediately with no BOOT, then the real sign-in prompts for BOOT. Chrome/macOS may also send reserved `.dummy` relying-party requests: `.dummy` `getAssertion` remains silent no-credentials, while `.dummy` `makeCredential` is treated as a synthetic touch-collection step that asks for BOOT, creates no credential, and returns operation-denied.
+
+With discoverable credentials and browser authentication user verification set to discouraged, sign-in should not ask for the PIN. The assertion may still include the user handle, but the firmware suppresses identifying user strings (`name`, `displayName`, `icon`) unless UV/PIN actually completed; Chrome can reject a signed assertion as a privacy error if those fields are exposed without UV.
 
 For PIN-required browser tests, use the browser or OS PIN dialog. Do not enter PIN material on the AMOLED; the screen only shows status. The current host probe sets the lab PIN to `123456`; reset the device before treating browser PIN behavior as a fresh setup test.
 

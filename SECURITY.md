@@ -18,7 +18,7 @@ Current security posture:
 - No production attestation.
 - No guarantee of resistance to physical extraction, fault injection, firmware replacement, or malicious hosts.
 
-The successful WebAuthn.io flow proves functional interoperability for a test scenario. It does not prove production security.
+Successful WebAuthn.io or host-probe flows prove functional interoperability for a test scenario only. They do not prove production security.
 
 ## Threat Model
 
@@ -55,6 +55,8 @@ Consequences:
 - Reflashing or debugging can change the trust state of the device.
 
 Non-resident credentials use stateless key-wrapping: their private keys are not stored, but are re-derived from a single device master secret held in NVS (namespace `fido_ms`). That master secret is the crown jewel — anyone who extracts it can re-derive every non-resident credential key ever issued by the device, for every relying party. Without flash encryption the master secret is readable from NVS, so the same physical-extraction caveats as stored resident keys apply. Resetting the device rotates the master secret, which invalidates all outstanding stateless credential IDs.
+
+Resident/discoverable credentials store RP and user display metadata for lab account-selection and credential-management flows. That metadata is not hardened against physical extraction. During UV-discouraged assertions, the firmware returns only the user handle and suppresses identifying strings such as `name` and `displayName`; it does not claim broader privacy protection outside this lab behavior.
 
 Future hardening work would need to evaluate ESP32 secure boot, flash encryption, eFuse provisioning, debug disablement, NVS encryption, anti-rollback, and secure-element options. Those features are not claimed by this repository today.
 

@@ -26,9 +26,10 @@ esp32-key.ino → src/App (Esp32KeyApp, orchestrates subsystems)
 - **Arduino CLI only** — no PlatformIO, ESP-IDF scaffolding, or CMake conversion.
 - USB exposes **only** the FIDO HID interface — never keyboard, mouse, mass-storage, or covert host-control behavior.
 - 64-byte HID reports (`kHidReportSize`) on the FIDO usage page; **ES256 / P-256 only**.
-- Credential cap is `kMaxCredentials = 8`; storage is deterministic when full.
+- Resident credential cap is `kMaxCredentials = 8`; non-resident credentials are stateless 33-byte wrapped IDs.
 - **BOOT / GPIO0** (`kBootButtonPin = 0`) is the user-presence button for register/sign/reset.
-- No CTAP `authenticatorClientPIN` / user verification yet — keep WebAuthn UV set to `discouraged`.
+- Lab CTAP `authenticatorClientPIN` exists for host-entered PIN protocol 2 testing. Built-in UV is still false; use WebAuthn UV `discouraged` unless intentionally testing browser/OS PIN prompts.
+- For resident/discoverable sign-in with UV discouraged, assertions must not include identifying user strings (`name`, `displayName`, `icon`); return only the user handle unless host PIN/UV completed.
 
 ## Commands
 

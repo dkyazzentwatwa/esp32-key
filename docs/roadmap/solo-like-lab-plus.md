@@ -113,6 +113,9 @@ Current status:
 - `getAssertion` now evaluates the full allowList (not just the first entry) for mixed resident/stateless multi-account RPs.
 - `tools/ctaphid_probe.py --stateless-bulk N` registers N (>8) non-resident credentials with no `kKeyStoreFull`, signs one, and confirms tampered and cross-RP credential IDs are rejected with `0x2e`.
 - Hardware-verified: 9 stateless registrations (distinct 33-byte IDs), stateless sign, tamper/cross-RP rejection, resident path unchanged, and silent `up=false` pre-flight on a stateless credential.
+- Browser-proven on Chrome/WebAuthn.io as of 2026-05-31 for both non-discoverable security-key credentials and discoverable/resident credentials with ES256, security-key hints, and user verification discouraged for registration and authentication. Chrome may still prompt for the host PIN when a lab PIN is set.
+- `.dummy` getAssertion remains silent no-credentials, while `.dummy` makeCredential now collects BOOT as a synthetic touch step, creates no credential, and returns `0x27` operation-denied. `tools/ctaphid_probe.py --dummy-makecred-probe` covers this host touch-collection path.
+- Resident/discoverable assertions suppress identifying user strings when UV is false; `--login-verify` checks that UV-discouraged sign-in returns only the user handle in the user entity.
 
 ## Test Commands
 
@@ -162,6 +165,14 @@ Host PIN smoke probe:
 
 ```sh
 tools/ctaphid_probe.py --client-pin-smoke
+```
+
+Browser-login debug probes:
+
+```sh
+tools/ctaphid_probe.py --dummy-rp-probe
+tools/ctaphid_probe.py --dummy-makecred-probe
+tools/ctaphid_probe.py --login-verify
 ```
 
 Legacy U2F probe:
