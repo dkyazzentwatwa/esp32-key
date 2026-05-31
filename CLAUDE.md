@@ -47,6 +47,8 @@ Use `debug-cdc` only for bring-up that needs serial logs. Full flash/probe/brows
 
 Compile ≠ upload ≠ enumerate ≠ probe ≠ browser. **Never claim hardware or browser success from compile output alone** — verify at the level you actually reached.
 
+Current browser proof: on 2026-05-31 Chrome/WebAuthn.io completed registration and sign-in for both non-discoverable security-key credentials and discoverable/resident credentials using ES256, security-key hints, and UV discouraged for registration/authentication. Chrome may still prompt for the host PIN when the lab PIN is set.
+
 ## Before changing USB, crypto, or storage
 
 Read [SECURITY.md](SECURITY.md) first — those paths define the device's safety boundary. When firmware behavior changes, keep the relevant docs in sync ([README.md](README.md), [SECURITY.md](SECURITY.md), [docs/bringup/arduino-cli-mvp.md](docs/bringup/arduino-cli-mvp.md), [docs/roadmap/solo-like-lab-plus.md](docs/roadmap/solo-like-lab-plus.md), [docs/specs/esp32-s3-fido2-webauthn-authenticator-spec.md](docs/specs/esp32-s3-fido2-webauthn-authenticator-spec.md)).

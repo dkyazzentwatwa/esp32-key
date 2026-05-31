@@ -570,6 +570,7 @@ Definition of done for MVP:
 - `authenticatorGetInfo` returns truthful MVP capabilities.
 - Device can register an ES256 non-resident credential with at least one test relying party.
 - Device can sign in with that credential after BOOT confirmation.
+- Chrome/WebAuthn.io registration and sign-in pass for both non-discoverable credentials and discoverable/resident credentials with ES256, security-key hints, and UV discouraged for registration/authentication.
 - Reset requires physical confirmation and wipes credentials.
 - Unsupported extension and production-grade UV requests fail cleanly; lab PIN and resident flows are probe-covered.
 - No secret-bearing logs are present in the `fido-lab` profile.
@@ -755,6 +756,7 @@ Deliverables:
 Acceptance criteria:
 
 - Registration/login passes on at least one browser/OS.
+- As of 2026-05-31, Chrome/WebAuthn.io passes for both non-discoverable and discoverable/resident flows.
 - Failures on other targets are classified.
 
 Main risks:
