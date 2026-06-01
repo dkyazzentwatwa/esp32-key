@@ -22,6 +22,9 @@ class AmoledUx {
   // host probes (e.g. .dummy or up=false pre-flight) without disturbing an
   // active real-RP prompt. The recorded values surface on the usbReady screen.
   void trace(const char *command, const char *rpId, const char *status, bool synthetic);
+  // Passive SD recorder state for ready/admin screens. This does not repaint
+  // immediately, so recorder events cannot interrupt browser prompts.
+  void recorderStatus(const char *status, const char *lastEvent);
 
  private:
   void drawBase(const char *title, uint16_t accentColor, const char *footer);
@@ -42,4 +45,7 @@ class AmoledUx {
   char traceStatus_[24] = "";
   bool traceSynthetic_ = false;
   bool hasTrace_ = false;
+  char recorderStatus_[40] = "";
+  char recorderLast_[56] = "";
+  bool hasRecorderStatus_ = false;
 };

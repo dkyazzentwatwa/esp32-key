@@ -30,6 +30,7 @@ esp32-key.ino → src/App (Esp32KeyApp, orchestrates subsystems)
 - **BOOT / GPIO0** (`kBootButtonPin = 0`) is the user-presence button for register/sign/reset.
 - Lab CTAP `authenticatorClientPIN` exists for host-entered PIN protocol 2 testing. Built-in UV is still false; use WebAuthn UV `discouraged` unless intentionally testing browser/OS PIN prompts.
 - For resident/discoverable sign-in with UV discouraged, assertions must not include identifying user strings (`name`, `displayName`, `icon`); return only the user handle unless host PIN/UV completed.
+- Optional SD lab recorder uses 1-bit SD_MMC (`CLK=2`, `CMD=1`, `D0=3`) for redacted diagnostics only. Never log secrets, raw credential IDs, PIN material, clientDataHash values, signatures, usernames, display names, or add USB mass storage.
 
 ## Commands
 

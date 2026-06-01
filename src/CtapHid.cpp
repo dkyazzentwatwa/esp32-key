@@ -25,7 +25,18 @@ static constexpr uint8_t kErrMsgTimeout = 0x05;
 static constexpr uint8_t kErrChannelBusy = 0x06;
 static constexpr uint8_t kErrInvalidCid = 0x0b;
 
-CtapHid::CtapHid(Ctap2 &ctap2, AmoledUx &ux) : ctap2_(ctap2), ux_(ux) {}
+CtapHid::CtapHid(Ctap2 &ctap2, AmoledUx &ux, LabRecorder &recorder)
+    : ctap2_(ctap2), ux_(ux), recorder_(recorder) {}
+
+void CtapHid::recordEvent(const char *kind, const char *cmd, const char *status, const char *note) {
+  LabRecorder::Event event{};
+  event.kind = kind;
+  event.cmd = cmd;
+  event.status = status;
+  event.note = note;
+  recorder_.record(event);
+  ux_.recorderStatus(recorder_.statusLine(), recorder_.lastSummary());
+}
 
 void CtapHid::begin(SendPacketCallback sender, void *senderCtx) {
   sender_ = sender;
@@ -69,16 +80,19 @@ void CtapHid::handleInitPacket(const uint8_t packet[BuildConfig::kHidReportSize]
 
   if (cid == 0) {
     ux_.diagnosticError("HID error", "Invalid CID", "cid=0");
+    recordEvent("error", "ctaphid", "invalid-cid 0x0b", "cid=0");
     sendError(kBroadcastCid, kErrInvalidCid);
     return;
   }
   if (rxLen_ != 0 && rxLen_ < rxExpected_ && cid != rxCid_) {
     ux_.diagnosticError("HID error", "Channel busy", "while receiving");
+    recordEvent("error", "ctaphid", "channel-busy 0x06", "while receiving");
     sendError(cid, kErrChannelBusy);
     return;
   }
   if (len > BuildConfig::kMaxCtapMessageSize) {
     ux_.diagnosticError("HID error", "Invalid length", "message too large");
+    recordEvent("error", "ctaphid", "invalid-length 0x03", "message too large");
     sendError(cid, kErrInvalidLen);
     resetRx();
     return;
@@ -102,12 +116,14 @@ void CtapHid::handleContinuationPacket(const uint8_t packet[BuildConfig::kHidRep
   const uint8_t seq = packet[4] & 0x7f;
   if (rxLen_ == 0 || cid != rxCid_) {
     ux_.diagnosticError("HID error", "Invalid sequence", "unexpected cont");
+    recordEvent("error", "ctaphid", "invalid-seq 0x04", "unexpected continuation");
     sendError(cid, kErrInvalidSeq);
     resetRx();
     return;
   }
   if (seq != nextSeq_) {
     ux_.diagnosticError("HID error", "Invalid sequence", "sequence mismatch");
+    recordEvent("error", "ctaphid", "invalid-seq 0x04", "sequence mismatch");
     sendError(cid, kErrInvalidSeq);
     resetRx();
     return;
@@ -128,10 +144,12 @@ void CtapHid::dispatchMessage() {
     case kCmdInit: {
       if (rxExpected_ != 8) {
         ux_.diagnosticError("HID INIT", "Invalid length", "expected 8");
+        recordEvent("error", "ctaphidInit", "invalid-length 0x03", "expected nonce");
         sendError(rxCid_, kErrInvalidLen);
         return;
       }
       ux_.diagnostic("HID INIT", "Host allocated CID", "FIDO channel ready");
+      recordEvent("trace", "ctaphidInit", "ok 0x00", "host allocated CID");
       uint8_t response[17];
       memcpy(response, rxBuffer_, 8);
       activeCid_ = 0xface0001UL;
@@ -149,16 +167,19 @@ void CtapHid::dispatchMessage() {
     }
     case kCmdPing:
       ux_.diagnostic("HID PING", "Host ping", "transport alive");
+      recordEvent("trace", "ctaphidPing", "ok 0x00", "transport alive");
       sendMessage(rxCid_, kCmdPing, rxBuffer_, rxExpected_);
       break;
     case kCmdCbor: {
       if (rxCid_ != activeCid_) {
         ux_.diagnosticError("CBOR error", "Invalid CID", "host channel mismatch");
+        recordEvent("error", "ctaphidCbor", "invalid-cid 0x0b", "host channel mismatch");
         sendError(rxCid_, kErrInvalidCid);
         return;
       }
       if (rxExpected_ == 0) {
         ux_.diagnosticError("CBOR error", "Invalid length", "empty command");
+        recordEvent("error", "ctaphidCbor", "invalid-length 0x03", "empty command");
       } else if (rxBuffer_[0] == 0x01) {
         // Defer the screen to handleMakeCredential: it can tell a real RP from a
         // synthetic .dummy probe, which this transport layer cannot.
@@ -188,18 +209,22 @@ void CtapHid::dispatchMessage() {
     }
     case kCmdCancel:
       ux_.diagnostic("HID CANCEL", "Host canceled", "browser stopped");
+      recordEvent("cancel", "ctaphidCancel", "canceled", "browser stopped");
       ctap2_.cancel();
       break;
     case kCmdWink:
       ux_.diagnostic("HID WINK", "Host wink", "ack");
+      recordEvent("trace", "ctaphidWink", "ok 0x00", "host wink");
       sendMessage(rxCid_, kCmdWink, nullptr, 0);
       break;
     case kCmdMsg:
       ux_.diagnostic("HID MSG", "CTAP1/U2F", "legacy request");
+      recordEvent("trace", "ctaphidMsg", "legacy", "CTAP1/U2F");
       sendMessage(rxCid_, kCmdMsg, txBuffer_, ctap2_.handleCtap1(rxBuffer_, rxExpected_, txBuffer_, sizeof(txBuffer_)));
       break;
     default:
       ux_.diagnosticError("HID error", "Invalid command", "unsupported HID cmd");
+      recordEvent("error", "ctaphid", "invalid-command 0x01", "unsupported HID cmd");
       sendError(rxCid_, kErrInvalidCmd);
       break;
   }

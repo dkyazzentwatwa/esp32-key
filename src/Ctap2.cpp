@@ -136,8 +136,32 @@ static void copyBounded(char *out, size_t outSize, const uint8_t *data, size_t l
   out[copyLen] = 0;
 }
 
-Ctap2::Ctap2(CryptoProvider &crypto, CredentialStore &store, UserPresence &presence, AmoledUx &ux)
-    : crypto_(crypto), store_(store), presence_(presence), ux_(ux) {}
+Ctap2::Ctap2(CryptoProvider &crypto, CredentialStore &store, UserPresence &presence, AmoledUx &ux,
+             LabRecorder &recorder)
+    : crypto_(crypto), store_(store), presence_(presence), ux_(ux), recorder_(recorder) {}
+
+void Ctap2::recordEvent(const char *kind, const char *cmd, const char *rp, const char *status, bool synthetic,
+                        bool up, bool uv, const char *note, bool proof) {
+  LabRecorder::Event event{};
+  event.kind = kind;
+  event.cmd = cmd;
+  event.rp = rp;
+  event.status = status;
+  event.synthetic = synthetic;
+  event.up = up;
+  event.uv = uv;
+  event.pinSet = pinSet_;
+  event.residentCount = store_.residentCount();
+  event.credentialCount = store_.count();
+  event.note = note;
+  event.proof = proof;
+  recorder_.record(event);
+  syncRecorderUx();
+}
+
+void Ctap2::syncRecorderUx() {
+  ux_.recorderStatus(recorder_.statusLine(), recorder_.lastSummary());
+}
 
 void Ctap2::begin() {
   masterSecret_.begin(crypto_);
@@ -174,6 +198,7 @@ size_t Ctap2::handle(const uint8_t *request, size_t requestLen, uint8_t *respons
   canceled_ = false;
   if (!request || requestLen == 0) {
     ux_.diagnosticError("CTAP2 error", "Invalid length", "empty request");
+    recordEvent("error", "ctap2", "", "invalid-length 0x03", false, false, false, "empty request");
     return writeStatus(Ctap2Status::kInvalidLength, response, responseCapacity);
   }
   switch (request[0]) {
@@ -186,6 +211,7 @@ size_t Ctap2::handle(const uint8_t *request, size_t requestLen, uint8_t *respons
     case kCmdClientPin: return handleClientPin(request + 1, requestLen - 1, response, responseCapacity);
     default:
       ux_.diagnosticError("CTAP2 error", "Invalid command", "unsupported CTAP2 cmd");
+      recordEvent("error", "ctap2", "", "invalid-command 0x01", false, false, false, "unsupported CTAP2 cmd");
       return writeStatus(Ctap2Status::kInvalidCommand, response, responseCapacity);
   }
 }
@@ -340,6 +366,7 @@ size_t Ctap2::handleU2fRegister(const U2fApdu &apdu, uint8_t *response, size_t r
   offset += signatureLen;
   response[offset++] = 0x90;
   response[offset++] = 0x00;
+  recordEvent("proof", "u2fRegister", "", "ok 0x9000", false, true, false, "legacy U2F register", true);
   ux_.success("U2F Registered");
   return offset;
 }
@@ -418,6 +445,7 @@ size_t Ctap2::handleU2fAuthenticate(const U2fApdu &apdu, uint8_t *response, size
   offset += signatureLen;
   response[offset++] = 0x90;
   response[offset++] = 0x00;
+  recordEvent("proof", "u2fAuthenticate", "", "ok 0x9000", false, true, false, "legacy U2F sign", true);
   ux_.success("U2F Signed");
   return offset;
 }
@@ -468,8 +496,10 @@ size_t Ctap2::handleGetInfo(uint8_t *response, size_t responseCapacity) {
 
   if (!writer.ok()) {
     ux_.diagnosticError("getInfo", "Encode failed", "CTAP2 other");
+    recordEvent("error", "getInfo", "", "other 0x7f", false, false, false, "CBOR encode failed");
     return writeStatus(Ctap2Status::kOther, response, responseCapacity);
   }
+  recordEvent("trace", "getInfo", "", "ok 0x00", false, false, false, "browser probe");
   return 1 + writer.size();
 }
 
@@ -808,6 +838,7 @@ bool Ctap2::waitForPresence(const char *action, const char *rpId, bool sendKeepa
   while (millis() - started < BuildConfig::kUserPresenceTimeoutMs) {
     if (canceled_) {
       ux_.diagnosticError(action, "Canceled by host", "browser stopped");
+      recordEvent("cancel", action, rpId, "canceled 0x2d", false, false, false, "host canceled wait");
       return false;
     }
     if (presence_.isPressed()) {
@@ -825,6 +856,7 @@ bool Ctap2::waitForPresence(const char *action, const char *rpId, bool sendKeepa
     delay(5);
   }
   ux_.diagnosticError(action, "Timeout", "BOOT not detected");
+  recordEvent("timeout", action, rpId, "timeout 0x2f", false, false, false, "BOOT not detected");
   return false;
 }
 
@@ -1147,10 +1179,13 @@ size_t Ctap2::handleClientPin(const uint8_t *payload, size_t len, uint8_t *respo
   ClientPinRequest req{};
   if (!parseClientPin(payload, len, req)) {
     ux_.diagnosticError("clientPin", "Invalid CBOR", "parse failed");
+    recordEvent("error", "clientPin", "", "invalid-cbor 0x12", false, false, false, "parse failed");
     return writeStatus(Ctap2Status::kInvalidCbor, response, responseCapacity);
   }
   if (req.pinUvAuthProtocol != kPinProtocolTwo) {
     ux_.diagnosticError("clientPin", "Bad protocol", "need PIN protocol 2");
+    recordEvent("error", "clientPin", req.rpId, "invalid-parameter 0x02", false, false, false,
+                "bad PIN protocol");
     return writeStatus(Ctap2Status::kInvalidParameter, response, responseCapacity);
   }
 
@@ -1162,6 +1197,7 @@ size_t Ctap2::handleClientPin(const uint8_t *payload, size_t len, uint8_t *respo
       writer.writeUInt(3);
       writer.writeUInt(pinRetries_);
       ux_.diagnostic("clientPin", "Retries", pinSet_ ? "PIN set" : "PIN not set");
+      recordEvent("trace", "clientPin", "", "ok 0x00", false, false, false, "get retries");
       return writer.ok() ? 1 + writer.size() : writeStatus(Ctap2Status::kOther, response, responseCapacity);
     }
 
@@ -1172,6 +1208,7 @@ size_t Ctap2::handleClientPin(const uint8_t *payload, size_t len, uint8_t *respo
       writer.writeUInt(1);
       if (!writeKeyAgreement(writer)) return writeStatus(Ctap2Status::kOther, response, responseCapacity);
       ux_.diagnostic("clientPin", "Key agreement", "protocol 2");
+      recordEvent("trace", "clientPin", "", "ok 0x00", false, false, false, "key agreement");
       return writer.ok() ? 1 + writer.size() : writeStatus(Ctap2Status::kOther, response, responseCapacity);
     }
 
@@ -1258,6 +1295,8 @@ size_t Ctap2::handleClientPin(const uint8_t *payload, size_t len, uint8_t *respo
       memset(newPinPlain, 0, sizeof(newPinPlain));
       memset(hash, 0, sizeof(hash));
       ux_.success(req.subCommand == kClientPinSetPin ? "PIN Set" : "PIN Changed");
+      recordEvent("proof", "clientPin", "", "ok 0x00", false, false, true,
+                  req.subCommand == kClientPinSetPin ? "PIN set" : "PIN changed", true);
       return writeStatus(Ctap2Status::kOk, response, responseCapacity);
     }
 
@@ -1313,6 +1352,7 @@ size_t Ctap2::handleClientPin(const uint8_t *payload, size_t len, uint8_t *respo
       writer.writeUInt(2);
       writer.writeBytes(tokenEnc, tokenEncLen);
       ux_.diagnostic("clientPin", "Token issued", req.rpId[0] ? req.rpId : "permissions");
+      recordEvent("trace", "clientPin", req.rpId, "ok 0x00", false, false, true, "PIN/UV token issued");
       memset(sharedSecret, 0, sizeof(sharedSecret));
       memset(pinHashPlain, 0, sizeof(pinHashPlain));
       memset(tokenEnc, 0, sizeof(tokenEnc));
@@ -1329,6 +1369,7 @@ size_t Ctap2::handleMakeCredential(const uint8_t *payload, size_t len, uint8_t *
   MakeCredentialRequest req{};
   if (!parseMakeCredential(payload, len, req)) {
     ux_.diagnosticError("makeCredential", "Invalid CBOR", "parse failed");
+    recordEvent("error", "makeCredential", "", "invalid-cbor 0x12", false, false, false, "parse failed");
     return writeStatus(Ctap2Status::kInvalidCbor, response, responseCapacity);
   }
   if (isSyntheticRpId(req.rpId)) {
@@ -1338,17 +1379,22 @@ size_t Ctap2::handleMakeCredential(const uint8_t *payload, size_t len, uint8_t *
     const bool touched = waitForPresence("SYNTHETIC TOUCH", req.rpId);
     const char *status = touched ? "touch denied 0x27" : (canceled_ ? "canceled 0x27" : "timeout 0x27");
     ux_.trace("makeCredential", req.rpId, status, true);
+    recordEvent("synthetic", "makeCredential", req.rpId, status, true, touched, false, "no credential created");
     return writeStatus(Ctap2Status::kOperationDenied, response, responseCapacity);
   }
   bool userVerified = false;
   if (req.requireUserVerification) {
     if (!req.hasPinUvAuthParam) {
       ux_.diagnosticError("makeCredential", "PIN required", "browser PIN");
+      recordEvent("error", "makeCredential", req.rpId, pinSet_ ? "pin-required 0x36" : "pin-not-set 0x35",
+                  false, false, false, "browser PIN required");
       return writeStatus(pinSet_ ? Ctap2Status::kPinRequired : Ctap2Status::kPinNotSet, response, responseCapacity);
     }
     if (!verifyPinUvAuthParam(req.pinUvAuthProtocol, req.clientDataHash, sizeof(req.clientDataHash),
                               req.pinUvAuthParam, req.pinUvAuthParamLen, kPinPermissionMakeCredential, req.rpId)) {
       ux_.diagnosticError("makeCredential", "PIN auth invalid", "browser PIN");
+      recordEvent("error", "makeCredential", req.rpId, "pin-auth-invalid 0x33", false, false, false,
+                  "browser PIN auth failed");
       return writeStatus(Ctap2Status::kPinAuthInvalid, response, responseCapacity);
     }
     userVerified = true;
@@ -1359,6 +1405,8 @@ size_t Ctap2::handleMakeCredential(const uint8_t *payload, size_t len, uint8_t *
         store_.findByCredentialId(req.excludeCredentialId, req.excludeCredentialIdLen, existing)) ||
        isStatelessCredentialId(req.excludeCredentialId, req.excludeCredentialIdLen, req.rpIdHash))) {
     ux_.diagnosticError("makeCredential", "Credential excluded", "already registered");
+    recordEvent("error", "makeCredential", req.rpId, "credential-excluded 0x19", false, false, userVerified,
+                "excludeList match");
     return writeStatus(Ctap2Status::kCredentialExcluded, response, responseCapacity);
   }
   ux_.diagnostic("makeCredential", "Waiting for BOOT", req.rpId);
@@ -1379,6 +1427,7 @@ size_t Ctap2::handleMakeCredential(const uint8_t *payload, size_t len, uint8_t *
     record.flags = kCredentialFlagResident;
     if (!crypto_.generateP256(key) || !crypto_.randomBytes(record.credentialId, sizeof(record.credentialId))) {
       ux_.diagnosticError("makeCredential", "Crypto failed", "key or random");
+      recordEvent("error", "makeCredential", req.rpId, "other 0x7f", false, true, userVerified, "crypto failed");
       return writeStatus(Ctap2Status::kOther, response, responseCapacity);
     }
     memcpy(record.rpIdHash, req.rpIdHash, sizeof(record.rpIdHash));
@@ -1395,11 +1444,15 @@ size_t Ctap2::handleMakeCredential(const uint8_t *payload, size_t len, uint8_t *
     record.signCount = 1;
     if (!store_.add(record)) {
       ux_.diagnosticError("makeCredential", "Storage full", "delete or reset");
+      recordEvent("error", "makeCredential", req.rpId, "keystore-full 0x28", false, true, userVerified,
+                  "resident store full");
       return writeStatus(Ctap2Status::kKeyStoreFull, response, responseCapacity);
     }
     if (!buildAuthData(record.rpIdHash, mcFlags, record.signCount, record.credentialId, 32, record.publicX,
                        record.publicY, authData, sizeof(authData), authDataLen)) {
       ux_.diagnosticError("makeCredential", "AuthData failed", "encode failed");
+      recordEvent("error", "makeCredential", req.rpId, "other 0x7f", false, true, userVerified,
+                  "authData encode failed");
       return writeStatus(Ctap2Status::kOther, response, responseCapacity);
     }
     ux_.trace("makeCredential", record.rpId, "registered 0x00", false);
@@ -1410,11 +1463,15 @@ size_t Ctap2::handleMakeCredential(const uint8_t *payload, size_t len, uint8_t *
     P256KeyPair key;
     if (!buildStatelessCredentialId(req.rpIdHash, credId, key)) {
       ux_.diagnosticError("makeCredential", "Crypto failed", "wrap failed");
+      recordEvent("error", "makeCredential", req.rpId, "other 0x7f", false, true, userVerified,
+                  "stateless wrap failed");
       return writeStatus(Ctap2Status::kOther, response, responseCapacity);
     }
     if (!buildAuthData(req.rpIdHash, mcFlags, masterSecret_.currentSignCount(), credId, kStatelessCredIdLen,
                        key.publicX, key.publicY, authData, sizeof(authData), authDataLen)) {
       ux_.diagnosticError("makeCredential", "AuthData failed", "encode failed");
+      recordEvent("error", "makeCredential", req.rpId, "other 0x7f", false, true, userVerified,
+                  "authData encode failed");
       return writeStatus(Ctap2Status::kOther, response, responseCapacity);
     }
     memset(key.privateKey, 0, sizeof(key.privateKey));
@@ -1430,11 +1487,15 @@ size_t Ctap2::handleMakeCredential(const uint8_t *payload, size_t len, uint8_t *
   writer.writeBytes(authData, authDataLen);
   writer.writeUInt(3);
   writer.writeMap(0);
-  ux_.success("Registered");
   if (!writer.ok()) {
     ux_.diagnosticError("makeCredential", "Response failed", "CBOR encode");
+    recordEvent("error", "makeCredential", req.rpId, "other 0x7f", false, true, userVerified,
+                "response encode failed");
     return writeStatus(Ctap2Status::kOther, response, responseCapacity);
   }
+  recordEvent("proof", "makeCredential", req.rpId, "registered 0x00", false, true, userVerified,
+              req.requireResidentKey ? "discoverable credential" : "non-discoverable stateless credential", true);
+  ux_.success("Registered");
   return 1 + writer.size();
 }
 
@@ -1442,6 +1503,7 @@ size_t Ctap2::handleGetAssertion(const uint8_t *payload, size_t len, uint8_t *re
   GetAssertionRequest req{};
   if (!parseGetAssertion(payload, len, req)) {
     ux_.diagnosticError("getAssertion", "Invalid CBOR", "parse failed");
+    recordEvent("error", "getAssertion", "", "invalid-cbor 0x12", false, false, false, "parse failed");
     return writeStatus(Ctap2Status::kInvalidCbor, response, responseCapacity);
   }
   if (isSyntheticRpId(req.rpId)) {
@@ -1450,17 +1512,23 @@ size_t Ctap2::handleGetAssertion(const uint8_t *payload, size_t len, uint8_t *re
     // cached assertion chain so an in-flight real-RP login / getNextAssertion is
     // left undisturbed.
     ux_.trace("getAssertion", req.rpId, "no-credentials 0x2e", true);
+    recordEvent("synthetic", "getAssertion", req.rpId, "no-credentials 0x2e", true, false, false,
+                "reserved RP");
     return writeStatus(Ctap2Status::kNoCredentials, response, responseCapacity);
   }
   bool userVerified = false;
   if (req.requireUserVerification) {
     if (!req.hasPinUvAuthParam) {
       ux_.diagnosticError("getAssertion", "PIN required", "browser PIN");
+      recordEvent("error", "getAssertion", req.rpId, pinSet_ ? "pin-required 0x36" : "pin-not-set 0x35",
+                  false, false, false, "browser PIN required");
       return writeStatus(pinSet_ ? Ctap2Status::kPinRequired : Ctap2Status::kPinNotSet, response, responseCapacity);
     }
     if (!verifyPinUvAuthParam(req.pinUvAuthProtocol, req.clientDataHash, sizeof(req.clientDataHash),
                               req.pinUvAuthParam, req.pinUvAuthParamLen, kPinPermissionGetAssertion, req.rpId)) {
       ux_.diagnosticError("getAssertion", "PIN auth invalid", "browser PIN");
+      recordEvent("error", "getAssertion", req.rpId, "pin-auth-invalid 0x33", false, false, false,
+                  "browser PIN auth failed");
       return writeStatus(Ctap2Status::kPinAuthInvalid, response, responseCapacity);
     }
     userVerified = true;
@@ -1509,8 +1577,12 @@ size_t Ctap2::handleGetAssertion(const uint8_t *payload, size_t len, uint8_t *re
   if (!statelessHit && assertionCount_ == 0) {
     if (requireUp) {
       ux_.diagnosticError("getAssertion", "No credential", req.rpId);
+      recordEvent("error", "getAssertion", req.rpId, "no-credentials 0x2e", false, false, userVerified,
+                  "no matching credential");
     } else {
       ux_.trace("getAssertion", req.rpId, "preflight no-cred 0x2e", false);
+      recordEvent("trace", "getAssertion", req.rpId, "preflight no-cred 0x2e", false, false, userVerified,
+                  "silent up=false preflight");
     }
     return writeStatus(Ctap2Status::kNoCredentials, response, responseCapacity);
   }
@@ -1600,6 +1672,8 @@ size_t Ctap2::writeAssertionFromIdentity(const AssertionIdentity &identity, cons
   if (!buildAuthData(identity.rpIdHash, flags, signCount, nullptr, 0, nullptr, nullptr, authData, sizeof(authData),
                      authDataLen)) {
     ux_.diagnosticError("getAssertion", "AuthData failed", "encode failed");
+    recordEvent("error", "getAssertion", identity.rpId ? identity.rpId : "", "other 0x7f", false, userPresent,
+                userVerified, "authData encode failed");
     return writeStatus(Ctap2Status::kOther, response, responseCapacity);
   }
 
@@ -1612,6 +1686,8 @@ size_t Ctap2::writeAssertionFromIdentity(const AssertionIdentity &identity, cons
   if (!crypto_.sha256(signedBytes, authDataLen + 32, signatureHash) ||
       !crypto_.signP256Der(identity.privateKey, signatureHash, signature, sizeof(signature), signatureLen)) {
     ux_.diagnosticError("getAssertion", "Crypto failed", "sign failed");
+    recordEvent("error", "getAssertion", identity.rpId ? identity.rpId : "", "other 0x7f", false, userPresent,
+                userVerified, "signature failed");
     return writeStatus(Ctap2Status::kOther, response, responseCapacity);
   }
 
@@ -1657,16 +1733,22 @@ size_t Ctap2::writeAssertionFromIdentity(const AssertionIdentity &identity, cons
     writer.writeUInt(credentialCount);
   }
   const char *traceRp = identity.rpId ? identity.rpId : "";
+  if (!writer.ok()) {
+    ux_.diagnosticError("getAssertion", "Response failed", "CBOR encode");
+    recordEvent("error", "getAssertion", traceRp, "other 0x7f", false, userPresent, userVerified,
+                "response encode failed");
+    return writeStatus(Ctap2Status::kOther, response, responseCapacity);
+  }
   if (userPresent) {
     ux_.trace("getAssertion", traceRp, "signed 0x00", false);
+    recordEvent("proof", "getAssertion", traceRp, "signed 0x00", false, true, userVerified,
+                identity.hasUser ? "discoverable credential" : "non-discoverable credential", true);
     ux_.success("Signed");
   } else {
     // Silent pre-flight succeeded (UP flag cleared); leave the screen alone.
     ux_.trace("getAssertion", traceRp, "preflight up=0 0x00", false);
-  }
-  if (!writer.ok()) {
-    ux_.diagnosticError("getAssertion", "Response failed", "CBOR encode");
-    return writeStatus(Ctap2Status::kOther, response, responseCapacity);
+    recordEvent("trace", "getAssertion", traceRp, "preflight up=0 0x00", false, false, userVerified,
+                "silent up=false preflight");
   }
   return 1 + writer.size();
 }
@@ -1747,6 +1829,7 @@ size_t Ctap2::handleCredentialManagement(const uint8_t *payload, size_t len, uin
   CredentialManagementRequest req{};
   if (!parseCredentialManagement(payload, len, req)) {
     ux_.diagnosticError("credMgmt", "Invalid CBOR", "parse failed");
+    recordEvent("error", "credMgmt", "", "invalid-cbor 0x12", false, false, false, "parse failed");
     return writeStatus(Ctap2Status::kInvalidCbor, response, responseCapacity);
   }
 
@@ -1760,6 +1843,7 @@ size_t Ctap2::handleCredentialManagement(const uint8_t *payload, size_t len, uin
       writer.writeUInt(2);
       writer.writeUInt(store_.remainingSlots());
       ux_.diagnostic("credMgmt", "Metadata", "resident count");
+      recordEvent("trace", "credMgmt", "", "ok 0x00", false, false, false, "metadata");
       return writer.ok() ? 1 + writer.size() : writeStatus(Ctap2Status::kOther, response, responseCapacity);
     }
 
@@ -1781,9 +1865,11 @@ size_t Ctap2::handleCredentialManagement(const uint8_t *payload, size_t len, uin
       }
       if (cmRpCount_ == 0) {
         ux_.diagnosticError("credMgmt", "No resident RPs", "nothing to list");
+        recordEvent("error", "credMgmt", "", "no-credentials 0x2e", false, false, false, "no resident RPs");
         return writeStatus(Ctap2Status::kNoCredentials, response, responseCapacity);
       }
       ux_.diagnostic("credMgmt", "Enumerate RPs", "resident creds");
+      recordEvent("trace", "credMgmt", "", "ok 0x00", false, false, false, "enumerate RPs");
       cmRpNext_ = 1;
       return writeCredentialManagementRp(cmRpIndexes_[0], response, responseCapacity, true);
     }
@@ -1802,9 +1888,11 @@ size_t Ctap2::handleCredentialManagement(const uint8_t *payload, size_t len, uin
       cmCredentialNext_ = 0;
       if (cmCredentialCount_ == 0) {
         ux_.diagnosticError("credMgmt", "No credentials", "for RP");
+        recordEvent("error", "credMgmt", "", "no-credentials 0x2e", false, false, false, "no resident credentials");
         return writeStatus(Ctap2Status::kNoCredentials, response, responseCapacity);
       }
       ux_.diagnostic("credMgmt", "Enumerate creds", "resident RP");
+      recordEvent("trace", "credMgmt", "", "ok 0x00", false, false, false, "enumerate credentials");
       cmCredentialNext_ = 1;
       return writeCredentialManagementCredential(cmCredentialIndexes_[0], response, responseCapacity, true);
 
@@ -1826,6 +1914,7 @@ size_t Ctap2::handleCredentialManagement(const uint8_t *payload, size_t len, uin
         return writeStatus(Ctap2Status::kNoCredentials, response, responseCapacity);
       }
       ux_.success("Credential Deleted");
+      recordEvent("proof", "credMgmt", "", "ok 0x00", false, true, false, "credential deleted", true);
       return writeStatus(Ctap2Status::kOk, response, responseCapacity);
 
     case kCredMgmtUpdateUserInformation: {
@@ -1850,11 +1939,13 @@ size_t Ctap2::handleCredentialManagement(const uint8_t *payload, size_t len, uin
         return writeStatus(Ctap2Status::kOther, response, responseCapacity);
       }
       ux_.success("User Updated");
+      recordEvent("proof", "credMgmt", record.rpId, "ok 0x00", false, true, false, "user info updated", true);
       return writeStatus(Ctap2Status::kOk, response, responseCapacity);
     }
 
     default:
       ux_.diagnosticError("credMgmt", "Unsupported cmd", "subcommand");
+      recordEvent("error", "credMgmt", "", "invalid-parameter 0x02", false, false, false, "unsupported subcommand");
       return writeStatus(Ctap2Status::kInvalidParameter, response, responseCapacity);
   }
 }
@@ -1863,9 +1954,11 @@ size_t Ctap2::handleReset(uint8_t *response, size_t responseCapacity) {
   ux_.waitingForPresence("RESET", "hold BOOT");
   if (!presence_.waitForResetHold(BuildConfig::kResetHoldMs, BuildConfig::kUserPresenceTimeoutMs)) {
     ux_.diagnosticError("RESET", "Timeout", "hold BOOT 5s");
+    recordEvent("timeout", "reset", "", "timeout 0x2f", false, false, false, "reset hold not detected");
     return writeStatus(Ctap2Status::kUserActionTimeout, response, responseCapacity);
   }
   wipeLabState();
+  recordEvent("proof", "reset", "", "ok 0x00", false, true, false, "host CTAP reset wiped lab state", true);
   ux_.success("Wiped");
   return writeStatus(Ctap2Status::kOk, response, responseCapacity);
 }

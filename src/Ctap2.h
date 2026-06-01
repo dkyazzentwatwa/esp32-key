@@ -7,6 +7,7 @@
 #include "CborCodec.h"
 #include "CredentialStore.h"
 #include "CryptoProvider.h"
+#include "LabRecorder.h"
 #include "MasterSecret.h"
 #include "UserPresence.h"
 
@@ -38,7 +39,8 @@ class Ctap2 {
  public:
   using KeepaliveCallback = void (*)(void *ctx, uint8_t status);
 
-  Ctap2(CryptoProvider &crypto, CredentialStore &store, UserPresence &presence, AmoledUx &ux);
+  Ctap2(CryptoProvider &crypto, CredentialStore &store, UserPresence &presence, AmoledUx &ux,
+        LabRecorder &recorder);
 
   void begin();
   void setKeepaliveCallback(KeepaliveCallback callback, void *ctx);
@@ -46,6 +48,7 @@ class Ctap2 {
   size_t handleCtap1(const uint8_t *request, size_t requestLen, uint8_t *response, size_t responseCapacity);
   void wipeLabState();
   void cancel();
+  bool isPinSet() const { return pinSet_; }
 
  private:
   // Stateless (key-wrapped) non-resident credential ID: [version:1][nonce:16][MAC:16].
@@ -223,11 +226,15 @@ class Ctap2 {
   void writeRpEntity(CborWriter &writer, const CredentialRecord &record);
   void writeUserEntity(CborWriter &writer, const CredentialRecord &record);
   void writeCredentialDescriptor(CborWriter &writer, const CredentialRecord &record);
+  void recordEvent(const char *kind, const char *cmd, const char *rp, const char *status, bool synthetic = false,
+                   bool up = false, bool uv = false, const char *note = "", bool proof = false);
+  void syncRecorderUx();
 
   CryptoProvider &crypto_;
   CredentialStore &store_;
   UserPresence &presence_;
   AmoledUx &ux_;
+  LabRecorder &recorder_;
   MasterSecret masterSecret_;
   Preferences pinPrefs_;
   KeepaliveCallback keepalive_ = nullptr;

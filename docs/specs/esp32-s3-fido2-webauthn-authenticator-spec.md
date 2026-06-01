@@ -326,7 +326,7 @@ NVS and flash layout:
 - Hardened lab build should enable flash encryption and NVS encryption.
 - NVS encryption requires an NVS key partition; Espressif's underlying storage model stores NVS encryption keys in a partition protected by flash encryption. In Arduino CLI, this needs explicit verification against the selected ESP32 Arduino core, partition scheme, and upload workflow.
 - A future more-secure model can store an encrypted credential database in a dedicated encrypted data partition and use a device-unique wrapping key protected by ESP32-S3 eFuses or a secure element.
-- TF card must not store private keys. It may hold logs or screenshots only if those logs are secret-free.
+- TF card must not store private keys. It may hold redacted lab logs, proof notes, and boot/error breadcrumbs only if those artifacts are secret-free and expose no PINs, PIN/UV tokens, client data hashes, signatures, raw credential IDs, usernames, display names, master secrets, or credential export data.
 
 Wipe/reset behavior:
 
@@ -811,7 +811,7 @@ Estimated inexpensive MVP parts:
 | Small enclosure | Physical handling | Should leave BOOT accessible and show display. |
 | Optional external tactile button | User presence | Useful if BOOT is inconvenient in an enclosure. |
 | Optional RGB LED | Status | Useful if display is off or hidden. |
-| Optional TF card | Non-secret logs only | Do not store private keys. |
+| Optional TF card | Non-secret logs only | 1-bit SD_MMC on Waveshare AMOLED 1.8 (`CLK=GPIO2`, `CMD=GPIO1`, `D0=GPIO3`); do not store private keys or credential export data. |
 | Optional secure element | Future hardening | Not required for MVP; adds driver and key-model work. |
 | Optional NFC module | Future transport | Out of scope for first version. |
 

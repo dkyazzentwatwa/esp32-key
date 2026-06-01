@@ -3,7 +3,8 @@
 #include "BuildConfig.h"
 #include "Diagnostics.h"
 
-Esp32KeyApp::Esp32KeyApp() : ctap2_(crypto_, store_, presence_, ux_), ctapHid_(ctap2_, ux_), usb_(ctapHid_) {}
+Esp32KeyApp::Esp32KeyApp()
+    : ctap2_(crypto_, store_, presence_, ux_, recorder_), ctapHid_(ctap2_, ux_, recorder_), usb_(ctapHid_) {}
 
 void Esp32KeyApp::begin() {
   Diagnostics::begin();
@@ -14,6 +15,9 @@ void Esp32KeyApp::begin() {
   crypto_.begin();
   store_.begin();
   ctap2_.begin();
+  recorder_.begin(crypto_);
+  recorder_.recordBoot(store_.count(), store_.residentCount(), ctap2_.isPinSet());
+  ux_.recorderStatus(recorder_.statusLine(), recorder_.lastSummary());
   usb_.begin();
   ux_.usbReady();
 }
@@ -67,6 +71,17 @@ void Esp32KeyApp::handleAdminButton() {
 
   if (adminState_ == AdminState::kConfirm && heldMs >= BuildConfig::kAdminConfirmHoldMs) {
     ctap2_.wipeLabState();
+    LabRecorder::Event event{};
+    event.kind = "proof";
+    event.cmd = "adminWipe";
+    event.status = "wiped 0x00";
+    event.pinSet = ctap2_.isPinSet();
+    event.residentCount = store_.residentCount();
+    event.credentialCount = store_.count();
+    event.note = "local BOOT admin wipe";
+    event.proof = true;
+    recorder_.record(event);
+    ux_.recorderStatus(recorder_.statusLine(), recorder_.lastSummary());
     adminState_ = AdminState::kReady;
     bootHeldSince_ = now;
     ux_.success("Admin Wiped");

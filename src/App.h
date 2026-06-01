@@ -7,6 +7,7 @@
 #include "CryptoProvider.h"
 #include "Ctap2.h"
 #include "CtapHid.h"
+#include "LabRecorder.h"
 #include "UsbFidoHid.h"
 #include "UserPresence.h"
 
@@ -28,6 +29,7 @@ class Esp32KeyApp {
   CryptoProvider crypto_;
   CredentialStore store_;
   UserPresence presence_;
+  LabRecorder recorder_;
   AmoledUx ux_;
   Ctap2 ctap2_;
   CtapHid ctapHid_;

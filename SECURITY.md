@@ -4,6 +4,8 @@ This repository is an experimental learning project for an ESP32-S3 AMOLED FIDO/
 
 Do not use this firmware to protect high-value accounts. Do not use it as your only authenticator. Do not use it for personal email, banking, business infrastructure, cloud consoles, source-code hosting, password managers, cryptocurrency, government services, or other important accounts.
 
+Assume a person who physically possesses the board can eventually extract useful flash/NVS-backed credential material unless you have separately provisioned and validated secure boot, flash encryption, NVS encryption, debug restrictions, and the surrounding recovery/update process. This repository does not claim those protections today.
+
 ## Security Status
 
 Current security posture:
@@ -17,6 +19,7 @@ Current security posture:
 - No hardened private-key storage.
 - No production attestation.
 - No guarantee of resistance to physical extraction, fault injection, firmware replacement, or malicious hosts.
+- Physically extractable flash/NVS credential state in the current lab profile.
 
 Successful WebAuthn.io or host-probe flows prove functional interoperability for a test scenario only. They do not prove production security.
 
@@ -45,18 +48,22 @@ This project does not currently defend against:
 
 ## Private Keys And Credential Storage
 
-Credential private keys are stored locally on the ESP32-S3 in flash-backed storage. The MVP does not use a secure element.
+Credential private keys and credential-derived secrets are stored locally on the ESP32-S3 in flash-backed state. The MVP does not use a secure element.
 
 Consequences:
 
 - Anyone with physical access and the right tooling may be able to extract or clone credential material.
+- Resident/discoverable credential records include private keys in the NVS-backed credential store.
+- Non-resident credentials depend on the stateless master secret in NVS; extracting it may allow re-deriving every non-resident credential key issued by that device.
 - Flash/NVS contents should be treated as sensitive.
-- Reset/wipe is a lab convenience, not a forensic erasure guarantee.
+- Reset/wipe is lab cleanup, not a forensic erasure guarantee.
 - Reflashing or debugging can change the trust state of the device.
 
 Non-resident credentials use stateless key-wrapping: their private keys are not stored, but are re-derived from a single device master secret held in NVS (namespace `fido_ms`). That master secret is the crown jewel — anyone who extracts it can re-derive every non-resident credential key ever issued by the device, for every relying party. Without flash encryption the master secret is readable from NVS, so the same physical-extraction caveats as stored resident keys apply. Resetting the device rotates the master secret, which invalidates all outstanding stateless credential IDs.
 
 Resident/discoverable credentials store RP and user display metadata for lab account-selection and credential-management flows. That metadata is not hardened against physical extraction. During UV-discouraged assertions, the firmware returns only the user handle and suppresses identifying strings such as `name` and `displayName`; it does not claim broader privacy protection outside this lab behavior.
+
+The optional TF-card recorder stores only redacted lab diagnostics: command names, CTAP statuses, proof-level notes, counts, synthetic/request flags, and redacted or hashed RP labels. It must not store credential private keys, the stateless master secret, PINs, PIN/UV tokens, browser client data hashes, signatures, raw credential IDs, usernames, display names, or credential export data. Anyone who removes the card can read the lab metadata on it, so do not use SD logs as public proof without review.
 
 Future hardening work would need to evaluate ESP32 secure boot, flash encryption, eFuse provisioning, debug disablement, NVS encryption, anti-rollback, and secure-element options. Those features are not claimed by this repository today.
 
@@ -118,6 +125,7 @@ Do not include:
 - Real account credentials.
 - Private keys.
 - Valid authentication assertions for important accounts.
+- Raw SD recorder dumps that expose account-specific lab metadata.
 - Sensitive browser profile data.
 - Dumps of flash/NVS from a device used with real accounts.
 

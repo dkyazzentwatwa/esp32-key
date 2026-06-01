@@ -117,6 +117,15 @@ Current status:
 - `.dummy` getAssertion remains silent no-credentials, while `.dummy` makeCredential now collects BOOT as a synthetic touch step, creates no credential, and returns `0x27` operation-denied. `tools/ctaphid_probe.py --dummy-makecred-probe` covers this host touch-collection path.
 - Resident/discoverable assertions suppress identifying user strings when UV is false; `--login-verify` checks that UV-discouraged sign-in returns only the user handle in the user entity.
 
+### 9. SD Lab Recorder
+
+Current status:
+
+- Implemented as an optional, redacted recorder on the onboard TF slot using 1-bit SD_MMC (`CLK=2`, `CMD=1`, `D0=3`), with no USB mass-storage surface and no credential export path.
+- Writes `/fido-lab/sessions/session-NNN.jsonl` and `/fido-lab/proofs/session-NNN.md` when a FAT32 card is present; missing/failed SD is passive and must not block FIDO flows.
+- Logs CTAP/HID command names, statuses, counts, flags, redacted RP labels, short RP hashes, proof notes, and boot/error breadcrumbs. It never logs private keys, master secrets, PINs, PIN tokens, clientDataHash values, signatures, raw credential IDs, usernames, or display names.
+- The AMOLED ready/admin screens show passive SD state and the last redacted event summary without interrupting browser prompts or synthetic `.dummy` handling.
+
 ## Test Commands
 
 Compile:

@@ -100,6 +100,10 @@ void AmoledUx::usbReady() {
   if (!hasTrace_) {
     printText(PAD, BODY_TOP + 108, "Register/sign-in prompts", 2, COLOR_DIM, COLOR_BG);
     printText(PAD, BODY_TOP + 136, "will appear here.", 2, COLOR_DIM, COLOR_BG);
+    if (hasRecorderStatus_) {
+      printClipped(PAD, BODY_TOP + 190, recorderStatus_, 30, 2, COLOR_DIM, COLOR_BG);
+      printClipped(PAD, BODY_TOP + 220, recorderLast_, 30, 2, COLOR_DIM, COLOR_BG);
+    }
     return;
   }
   // Surface the last request outcome as a passive trace so the operator can
@@ -111,6 +115,10 @@ void AmoledUx::usbReady() {
   printClipped(PAD, BODY_TOP + 134, line, 30, 2, traceSynthetic_ ? COLOR_WARN : COLOR_TEXT, COLOR_BG);
   snprintf(line, sizeof(line), "Status: %s", traceStatus_);
   printClipped(PAD, BODY_TOP + 164, line, 30, 2, COLOR_DIM, COLOR_BG);
+  if (hasRecorderStatus_) {
+    printClipped(PAD, BODY_TOP + 212, recorderStatus_, 30, 2, COLOR_DIM, COLOR_BG);
+    printClipped(PAD, BODY_TOP + 242, recorderLast_, 30, 2, COLOR_DIM, COLOR_BG);
+  }
 }
 
 void AmoledUx::diagnostic(const char *title, const char *line1, const char *line2) {
@@ -191,6 +199,9 @@ void AmoledUx::adminStatus(size_t totalCredentials, size_t residentCredentials, 
     printText(PAD, BODY_TOP + 176, "Hold BOOT again to", 2, COLOR_TEXT, COLOR_BG);
     printText(PAD, BODY_TOP + 204, "open wipe confirm.", 2, COLOR_TEXT, COLOR_BG);
   }
+  if (hasRecorderStatus_) {
+    printClipped(PAD, BODY_TOP + 252, recorderStatus_, 30, 2, COLOR_DIM, COLOR_BG);
+  }
 }
 
 void AmoledUx::success(const char *message) {
@@ -215,6 +226,12 @@ void AmoledUx::trace(const char *command, const char *rpId, const char *status, 
   hasTrace_ = true;
   // Intentionally no drawBase/returnToReadyAt_ here: a synthetic or up=false
   // probe must not repaint the screen or interrupt an active real-RP prompt.
+}
+
+void AmoledUx::recorderStatus(const char *status, const char *lastEvent) {
+  copyClipped(recorderStatus_, sizeof(recorderStatus_), status ? status : "-", 34);
+  copyClipped(recorderLast_, sizeof(recorderLast_), lastEvent ? lastEvent : "-", 46);
+  hasRecorderStatus_ = true;
 }
 
 void AmoledUx::poll() {

@@ -4,6 +4,14 @@ Experimental Arduino CLI firmware for using the Waveshare ESP32-S3-Touch-AMOLED-
 
 This project is a learning prototype. It has completed Chrome/WebAuthn.io registration and sign-in in local testing for both non-discoverable security-key credentials and discoverable/resident credentials, but it is not a certified FIDO authenticator and must not be used to protect important personal, business, financial, cloud, or developer accounts.
 
+## Lab Safety Boundary
+
+Use this firmware only with owned disposable test accounts, local relying parties, or public demo relying parties such as WebAuthn.io.
+
+This board stores or derives credential secrets from ESP32-S3 flash-backed state. In the current lab profile, anyone with physical possession of the board and the right tooling may be able to extract or clone resident credential private keys, the stateless master secret, or other NVS-backed credential material. Reset is useful cleanup, but it is not a forensic erasure guarantee.
+
+Browser success proves lab interoperability only. It does not prove FIDO certification, secure-element-backed storage, production attestation, physical-extraction resistance, or suitability for important accounts.
+
 ## Current Status
 
 The firmware currently supports:
@@ -25,6 +33,7 @@ The firmware currently supports:
 - BOOT/GPIO0 user-presence confirmation for registration, signing, and reset.
 - AMOLED admin reset screen with credential count, resident count, free-slot/full status, and two-step BOOT wipe confirmation.
 - AMOLED status and diagnostic screens for host commands, rejections, user-presence prompts, and success states.
+- Optional TF-card lab recorder for redacted JSONL event logs, proof notes, boot/error breadcrumbs, and AMOLED session history.
 - Host-side probing with `tools/ctaphid_probe.py`.
 - Solo-like Lab Plus roadmap tracked in `docs/roadmap/solo-like-lab-plus.md`.
 
@@ -37,12 +46,13 @@ Target board:
 - 1.8 inch 368 x 448 SH8601 AMOLED
 - Native ESP32-S3 USB over USB-C
 - BOOT button on GPIO0
+- Optional FAT32 TF card in the onboard slot for non-secret lab diagnostics
 
 Use a USB-C data cable. Some charge-only cables will power the board but will not enumerate USB HID or serial.
 
-## Safety Boundary
+## Safety Boundary Details
 
-Use this firmware only with owned test accounts, local relying parties, or public demo relying parties such as WebAuthn.io.
+Use this firmware only with disposable lab accounts, local relying parties, or public demo relying parties such as WebAuthn.io.
 
 Known boundaries:
 
@@ -52,7 +62,7 @@ Known boundaries:
 - Lab host PIN only; no biometric/user-verification hardware and no hardened PIN storage.
 - No biometric verification.
 - No hardened private-key storage.
-- No protection against physical flash extraction.
+- No protection against physical flash/NVS extraction in the current lab profile.
 - No protection against malicious firmware replacement unless you add and correctly provision secure boot and flash encryption.
 - Lab attestation only. Do not represent this as a trusted commercial authenticator.
 
@@ -95,85 +105,104 @@ If the board is in bootloader mode, it usually appears as `/dev/cu.usbmodem*`. A
 Install probe dependencies in your preferred Python environment:
 
 ```sh
-python3 -m pip install hid cbor2
+python3 -m pip install hidapi cbor2 cryptography
 ```
+
+Run the repeatable baseline after flashing:
+
+```sh
+tools/run_probe_baseline.sh
+```
+
+The baseline lists attached boards, compiles `fido-lab`, lists FIDO HID devices, runs the host probe ladder, and ends with a guarded CTAP2 reset. It mutates lab state by creating disposable credentials and setting the lab PIN during the PIN smoke probe, then asks you to hold BOOT for cleanup reset. Press BOOT whenever the AMOLED requests user presence or reset confirmation.
+
+Baseline proof levels:
+
+- Compile-ready: `arduino-cli compile --profile fido-lab` succeeded.
+- Enumerated: the host probe opened the FIDO HID device after listing devices.
+- Probe-proven: the CTAPHID, CTAP2, PIN, U2F, stateless, and browser-compat probes passed.
+- Cleanup-reset requested: guarded reset completed after BOOT confirmation.
+
+Browser-proven status is separate. Run a real browser/WebAuthn.io registration and sign-in manually when you need browser proof.
+
+Targeted probe commands remain useful while debugging:
 
 List FIDO HID devices:
 
 ```sh
-tools/ctaphid_probe.py --list
+python3 tools/ctaphid_probe.py --list
 ```
 
 Run the basic CTAPHID and CTAP2 probe:
 
 ```sh
-tools/ctaphid_probe.py
+python3 tools/ctaphid_probe.py
 ```
 
 Run direct CTAP2 registration:
 
 ```sh
-tools/ctaphid_probe.py --make-credential
+python3 tools/ctaphid_probe.py --make-credential
 ```
 
 Run direct CTAP2 registration plus sign-in:
 
 ```sh
-tools/ctaphid_probe.py --ctap2-roundtrip
+python3 tools/ctaphid_probe.py --ctap2-roundtrip
 ```
 
 Run discoverable credential registration plus sign-in:
 
 ```sh
-tools/ctaphid_probe.py --resident-roundtrip
+python3 tools/ctaphid_probe.py --resident-roundtrip
 ```
 
 Run credential-management smoke coverage:
 
 ```sh
-tools/ctaphid_probe.py --cred-mgmt-smoke
+python3 tools/ctaphid_probe.py --cred-mgmt-smoke
 ```
 
 Run host PIN and UV-required CTAP2 smoke coverage:
 
 ```sh
-tools/ctaphid_probe.py --client-pin-smoke
+python3 tools/ctaphid_probe.py --client-pin-smoke
 ```
 
 Verify the reserved `.dummy` relying party is rejected silently (must return `0x2e` with no BOOT and no AMOLED change):
 
 ```sh
-tools/ctaphid_probe.py --dummy-rp-probe
+python3 tools/ctaphid_probe.py --dummy-rp-probe
 ```
 
 Verify Chrome's reserved `.dummy` `makeCredential` touch-collection path (press BOOT when prompted; it must create no credential and return `0x27` operation-denied):
 
 ```sh
-tools/ctaphid_probe.py --dummy-makecred-probe
+python3 tools/ctaphid_probe.py --dummy-makecred-probe
 ```
 
 Verify silent login pre-flight handling (registers a credential, then checks that an `up=false` assertion answers without BOOT and clears the UP flag, while the real `up=true` assertion still needs BOOT):
 
 ```sh
-tools/ctaphid_probe.py --preflight-probe
+python3 tools/ctaphid_probe.py --preflight-probe
 ```
 
 Prove non-resident credentials are stateless (register more than the 8-slot store cap, sign one, and reject tampered / cross-RP credential IDs). Press BOOT once per registration:
 
 ```sh
-tools/ctaphid_probe.py --stateless-bulk 9
+python3 tools/ctaphid_probe.py --stateless-bulk 9
 ```
 
 Run the Chrome-like login oracle for non-resident and resident paths (checks canonical CBOR, UP flags, resident-user privacy, and ES256 signatures):
 
 ```sh
-tools/ctaphid_probe.py --login-verify
+python3 tools/ctaphid_probe.py --login-verify
 ```
 
 Run a guarded lab credential wipe:
 
 ```sh
-tools/ctaphid_probe.py --reset
+python3 tools/ctaphid_probe.py --reset
 ```
 
 Use the on-device AMOLED admin reset:
@@ -185,7 +214,7 @@ Use the on-device AMOLED admin reset:
 Run direct legacy U2F registration against the lab handler:
 
 ```sh
-tools/ctaphid_probe.py --u2f-register
+python3 tools/ctaphid_probe.py --u2f-register
 ```
 
 When the AMOLED prompts for user presence, press BOOT once. For reset, hold BOOT until the board confirms the wipe; on-device reset requires the two-hold admin flow above. A successful PIN smoke probe sets a lab PIN, requests a PIN/UV token, and verifies UV-required registration and sign-in. A successful U2F probe should return `U2F register status=0x9000` and `Verified OK`. Browsers should prefer CTAP2 because `fido-lab` advertises CBOR and no CTAPHID MSG support.
@@ -226,6 +255,17 @@ With discoverable credentials and browser authentication user verification set t
 
 For PIN-required browser tests, use the browser or OS PIN dialog. Do not enter PIN material on the AMOLED; the screen only shows status. The current host probe sets the lab PIN to `123456`; reset the device before treating browser PIN behavior as a fresh setup test.
 
+## SD Lab Recorder
+
+If a FAT32 TF card is present, the firmware mounts the onboard slot through 1-bit SD_MMC (`CLK=GPIO2`, `CMD=GPIO1`, `D0=GPIO3`) and creates:
+
+- `/fido-lab/sessions/session-NNN.jsonl`: redacted per-boot event log.
+- `/fido-lab/proofs/session-NNN.md`: compact lab proof notes for successful register/sign/reset/admin events.
+
+The recorder is optional. If the card is missing, unreadable, or full, FIDO registration and sign-in continue normally and the AMOLED shows a passive SD status. The recorder never exposes USB mass storage and never writes credential private keys, the stateless master secret, PINs, PIN/UV tokens, browser client data hashes, signatures, raw credential IDs, usernames, or display names.
+
+Default redaction stores full RP names only for common lab RPs such as `webauthn.io` and `.dummy`; other RP IDs are recorded as `redacted` plus a short SHA-256 hash. Removing the card exposes lab metadata, so treat logs as diagnostic artifacts rather than publishable security evidence.
+
 ## Project Layout
 
 Important files:
@@ -234,6 +274,7 @@ Important files:
 - `sketch.yaml`: pinned Arduino CLI profiles, ESP32 core, FQBN, and libraries.
 - `src/`: USB HID, CTAPHID, CTAP2/U2F, CBOR, crypto, NVS storage, BOOT presence, and AMOLED UX modules.
 - `tools/ctaphid_probe.py`: host-side CTAPHID, CTAP2, and U2F probe script.
+- `tools/run_probe_baseline.sh`: repeatable compile/list/probe/reset baseline for the lab key.
 - `docs/bringup/arduino-cli-mvp.md`: bring-up notes and command reference.
 - `docs/roadmap/solo-like-lab-plus.md`: roadmap toward host PIN, resident credentials, credential management, and touch/admin UX.
 - `docs/specs/esp32-s3-fido2-webauthn-authenticator-spec.md`: original design specification.

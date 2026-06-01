@@ -40,7 +40,24 @@ After flashing, install optional host dependencies:
 python3 -m pip install hidapi cbor2 cryptography
 ```
 
-Then run:
+Recommended post-flash baseline:
+
+```sh
+tools/run_probe_baseline.sh
+```
+
+The baseline script runs `arduino-cli board list`, compiles `fido-lab`, lists FIDO HID devices, runs the host probe ladder, and ends with guarded cleanup reset. It mutates lab state: it creates disposable lab credentials, sets the lab PIN during the PIN smoke probe, and then asks you to hold BOOT for CTAP2 reset. Press BOOT whenever the AMOLED requests user presence or reset confirmation.
+
+The baseline proof levels are:
+
+- Compile-ready: `arduino-cli compile --profile fido-lab` succeeded.
+- Enumerated: the host probe opened the FIDO HID device after listing devices.
+- Probe-proven: the CTAPHID, CTAP2, PIN, U2F, stateless, and browser-compat probes passed.
+- Cleanup-reset requested: guarded reset completed after BOOT confirmation.
+
+Browser-proven status is separate. Use a real browser/WebAuthn.io registration and sign-in when you need browser proof.
+
+Expanded individual probe ladder:
 
 ```sh
 python3 tools/ctaphid_probe.py --list
@@ -48,16 +65,17 @@ python3 tools/ctaphid_probe.py
 python3 tools/ctaphid_probe.py --ctap2-roundtrip
 python3 tools/ctaphid_probe.py --resident-roundtrip
 python3 tools/ctaphid_probe.py --cred-mgmt-smoke
-python3 tools/ctaphid_probe.py --client-pin-smoke
-python3 tools/ctaphid_probe.py --dummy-rp-probe
-python3 tools/ctaphid_probe.py --dummy-makecred-probe
 python3 tools/ctaphid_probe.py --preflight-probe
 python3 tools/ctaphid_probe.py --stateless-bulk 9
 python3 tools/ctaphid_probe.py --login-verify
+python3 tools/ctaphid_probe.py --dummy-rp-probe
+python3 tools/ctaphid_probe.py --dummy-makecred-probe
+python3 tools/ctaphid_probe.py --u2f-register
+python3 tools/ctaphid_probe.py --client-pin-smoke
 python3 tools/ctaphid_probe.py --reset
 ```
 
-The basic probe sends CTAPHID INIT, PING, and CTAP2 getInfo. The CTAP2 roundtrip probe performs makeCredential followed by getAssertion and asks for BOOT on both sensitive operations. The resident roundtrip probe creates a discoverable credential and signs in without an allow list. The credential-management smoke probe creates a resident credential, enumerates RPs and credentials, deletes the credential with BOOT confirmation, and verifies that the deleted RP no longer signs. The client PIN smoke probe sets a lab PIN, obtains a PIN/UV token, and verifies UV-required registration and sign-in. The dummy RP probe verifies that reserved `.dummy` getAssertion is answered silently with `0x2e` no-credentials and never asks for BOOT. The dummy makeCredential probe verifies Chrome's synthetic touch path: it asks for BOOT, creates no credential, and returns `0x27` operation-denied. The pre-flight probe registers a credential, then verifies that a `getAssertion` with `options.up=false` returns immediately with the UP authData flag cleared and **without** a BOOT press, and that the following real `up=true` assertion still requires BOOT and sets UP=1. The login oracle verifies canonical CBOR, UP flags, resident-user privacy under UV discouraged, and ES256 signatures for non-resident and resident paths. Chrome/WebAuthn.io browser testing passed on 2026-05-31 for both non-discoverable and discoverable/resident security-key flows after these probes and fixes.
+The basic probe sends CTAPHID INIT, PING, and CTAP2 getInfo. The CTAP2 roundtrip probe performs makeCredential followed by getAssertion and asks for BOOT on both sensitive operations. The resident roundtrip probe creates a discoverable credential and signs in without an allow list. The credential-management smoke probe creates a resident credential, enumerates RPs and credentials, deletes the credential with BOOT confirmation, and verifies that the deleted RP no longer signs. The pre-flight probe registers a credential, then verifies that a `getAssertion` with `options.up=false` returns immediately with the UP authData flag cleared and **without** a BOOT press, and that the following real `up=true` assertion still requires BOOT and sets UP=1. The login oracle verifies canonical CBOR, UP flags, resident-user privacy under UV discouraged, and ES256 signatures for non-resident and resident paths. The dummy RP probe verifies that reserved `.dummy` getAssertion is answered silently with `0x2e` no-credentials and never asks for BOOT. The dummy makeCredential probe verifies Chrome's synthetic touch path: it asks for BOOT, creates no credential, and returns `0x27` operation-denied. The U2F probe checks direct legacy registration. The client PIN smoke probe sets a lab PIN, obtains a PIN/UV token, and verifies UV-required registration and sign-in. The reset probe should run last because it wipes lab credentials, rotates the stateless master secret, and clears the lab PIN after BOOT confirmation. Chrome/WebAuthn.io browser testing passed on 2026-05-31 for both non-discoverable and discoverable/resident security-key flows after these probes and fixes.
 
 ## Current MVP Boundary
 
@@ -79,8 +97,17 @@ The firmware compiles and includes:
 - BOOT/GPIO0 user-presence confirmation.
 - AMOLED admin reset screen with credential count, storage-full status, and two-step BOOT wipe confirmation.
 - AMOLED status and diagnostic screens for host commands, rejections, prompts, and success states.
+- Optional SD_MMC lab recorder on the Waveshare TF slot (`CLK=GPIO2`, `CMD=GPIO1`, `D0=GPIO3`) for redacted JSONL sessions, Markdown proof notes, boot/error breadcrumbs, and passive AMOLED session history. Missing or failed SD must not block FIDO flows.
 
 Browser flows that require user verification or PIN should use the host/browser PIN dialog. The AMOLED is status-only for PIN flows.
+
+## Lab Security Boundary
+
+Use only owned disposable accounts, local relying parties, or public demo relying parties such as WebAuthn.io. The current lab profile stores or derives credential secrets from ESP32-S3 flash/NVS state. Physical possession of the board may allow extraction or cloning of resident credential private keys, the stateless master secret, or other credential material. Reset is cleanup, not forensic erasure, and successful probes do not prove production security.
+
+## SD Lab Recorder Bring-up
+
+Use a FAT32 TF card. On boot, the firmware tries SD_MMC high speed, default, 10 MHz, then probing frequency with no format-on-fail. When mounted, it creates `/fido-lab/sessions/session-NNN.jsonl` and `/fido-lab/proofs/session-NNN.md`. Inspect those files after probe/browser runs and confirm they contain no private keys, master secrets, PINs, PIN/UV tokens, clientDataHash values, signatures, raw credential IDs, usernames, or display names.
 
 ## AMOLED Admin Reset
 

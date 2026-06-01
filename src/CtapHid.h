@@ -5,12 +5,13 @@
 #include "AmoledUx.h"
 #include "BuildConfig.h"
 #include "Ctap2.h"
+#include "LabRecorder.h"
 
 class CtapHid {
  public:
   using SendPacketCallback = bool (*)(void *ctx, const uint8_t packet[BuildConfig::kHidReportSize]);
 
-  CtapHid(Ctap2 &ctap2, AmoledUx &ux);
+  CtapHid(Ctap2 &ctap2, AmoledUx &ux, LabRecorder &recorder);
 
   void begin(SendPacketCallback sender, void *senderCtx);
   void receivePacket(const uint8_t packet[BuildConfig::kHidReportSize]);
@@ -27,9 +28,11 @@ class CtapHid {
   void sendError(uint32_t cid, uint8_t error);
   static uint32_t readCid(const uint8_t *packet);
   static void writeCid(uint8_t *packet, uint32_t cid);
+  void recordEvent(const char *kind, const char *cmd, const char *status, const char *note = "");
 
   Ctap2 &ctap2_;
   AmoledUx &ux_;
+  LabRecorder &recorder_;
   SendPacketCallback sender_ = nullptr;
   void *senderCtx_ = nullptr;
   uint32_t activeCid_ = 0;
