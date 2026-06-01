@@ -36,7 +36,7 @@ Read [SECURITY.md](SECURITY.md) before using the device with any account.
 
 Target board:
 
-- Waveshare `ESP32-S3-Touch-AMOLED-1.8`
+- Waveshare `ESP32-S3-Touch-AMOLED-1.8` ([Amazon](https://amzn.to/3RH5y67))
 - ESP32-S3R8 with 16 MB flash and 8 MB PSRAM
 - 1.8 inch 368 x 448 AMOLED
 - Native USB-C
