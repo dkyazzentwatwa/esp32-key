@@ -4,6 +4,12 @@
   <img src="docs/assets/esp32-key-github-banner.png" alt="ESP32-Key banner: Tiny WebAuthn Lab Key You Can Inspect" width="100%">
 </p>
 
+<p align="center">
+  <img src="docs/assets/esp32-key3.jpg" alt="ESP32-S3 display lab key approving a WebAuthn sign-in on iPhone" width="32%">
+  <img src="docs/assets/esp32-key1.jpg" alt="iPhone passkey demo showing a created lab passkey" width="32%">
+  <img src="docs/assets/esp32-key2.jpg" alt="ESP32-S3 display lab key showing a user-presence prompt" width="32%">
+</p>
+
 Experimental Arduino CLI firmware that turns Waveshare ESP32-S3 display boards into USB FIDO/WebAuthn lab authenticators.
 
 This is a learning and testing project. It has completed Chrome/WebAuthn.io registration and sign-in in local testing for both non-discoverable and discoverable/resident credentials, but it is not a certified security key and must not be used to protect important accounts.
@@ -92,6 +98,16 @@ tools/run_probe_baseline.sh
 The baseline compiles `fido-lab`, lists FIDO HID devices, runs the host probe ladder, creates disposable lab credentials, sets the lab PIN during the PIN smoke test, and ends with a guarded CTAP2 reset. Press BOOT whenever the device display asks for user presence or reset confirmation. For the 1.47 board, compile and upload `fido-lab-147` first, then run the individual probe commands in `docs/bringup/arduino-cli-mvp.md`.
 
 Browser testing is separate. Use a real browser/WebAuthn.io flow when you need browser proof.
+
+## Test Sites
+
+Use only disposable usernames and lab credentials. These are useful browser relying parties to try after compile/upload/probe validation:
+
+- [WebAuthn.io](https://webauthn.io/) - simple registration and sign-in testing.
+- [WebAuthn.me](https://webauthn.me/) - guided WebAuthn registration/login walkthrough.
+- [WebAuthn.me Debugger](https://webauthn.me/debugger) - configurable options for iOS/browser debugging.
+- [Passkeys.io](https://www.passkeys.io/) - passkey demo site; behavior may vary by browser and platform.
+- [passkeys.dev test-site directory](https://passkeys.dev/docs/tools-libraries/test-sites/) - maintained list of additional WebAuthn/passkey demo sites.
 
 ## Browser Demo
 
