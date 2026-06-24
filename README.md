@@ -1,9 +1,7 @@
 # ESP32-S3 Display FIDO Lab Key
 
 <p align="center">
-  <img src="docs/assets/esp32-key3.jpg" alt="ESP32-S3 display lab key approving a WebAuthn sign-in on iPhone" width="32%">
-  <img src="docs/assets/esp32-key1.jpg" alt="iPhone passkey demo showing a created lab passkey" width="32%">
-  <img src="docs/assets/esp32-key2.jpg" alt="ESP32-S3 display lab key showing a user-presence prompt" width="32%">
+  <img src="docs/assets/esp32-key-github-banner.png" alt="ESP32-Key banner: Tiny WebAuthn Lab Key You Can Inspect" width="100%">
 </p>
 
 Experimental Arduino CLI firmware that turns Waveshare ESP32-S3 display boards into USB FIDO/WebAuthn lab authenticators.
@@ -42,8 +40,8 @@ Read [SECURITY.md](SECURITY.md) before using the device with any account.
 
 Supported board profiles:
 
-- `fido-lab`: Waveshare `ESP32-S3-Touch-AMOLED-1.8`, 368 x 448 SH8601 AMOLED, ESP32-S3R8, 16 MB flash, 8 MB PSRAM, native USB-C, BOOT on GPIO0, optional FAT32 TF card for redacted lab diagnostics.
-- `fido-lab-147`: Waveshare `ESP32-S3-Touch-LCD-1.47`, 172 x 320 ST7789-compatible/JD9853 LCD, ESP32-S3R8, 16 MB flash, 8 MB PSRAM, native USB-C, BOOT on GPIO0.
+- `fido-lab`: [Waveshare `ESP32-S3-Touch-AMOLED-1.8`](https://amzn.to/3SnJePm), 368 x 448 SH8601 AMOLED, ESP32-S3R8, 16 MB flash, 8 MB PSRAM, native USB-C, BOOT on GPIO0, optional FAT32 TF card for redacted lab diagnostics.
+- `fido-lab-147`: [Waveshare `ESP32-S3-Touch-LCD-1.47`](https://amzn.to/4uQZ5Dl), 172 x 320 ST7789-compatible/JD9853 LCD, ESP32-S3R8, 16 MB flash, 8 MB PSRAM, native USB-C, BOOT on GPIO0.
 
 Use a USB-C data cable. Charge-only cables can power the board without exposing serial or FIDO HID.
 
