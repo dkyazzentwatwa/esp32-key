@@ -3,6 +3,9 @@
 
 #include "src/App.h"
 
+void setup();
+void loop();
+
 Esp32KeyApp app;
 
 void setup() {

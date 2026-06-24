@@ -18,3 +18,27 @@ profiles:
       - "GFX Library for Arduino (1.6.5)"
       - "Adafruit XCA9554 (1.0.0)"
       - "Adafruit BusIO (1.17.4)"
+
+  fido-lab-147:
+    fqbn: "esp32:esp32:esp32s3:USBMode=default,CDCOnBoot=default,MSCOnBoot=default,DFUOnBoot=default,UploadMode=default,CPUFreq=240,FlashMode=qio,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,DebugLevel=none,PSRAM=opi,LoopCore=1,EventsCore=1,EraseFlash=none"
+    platforms:
+      - platform: "esp32:esp32"
+        version: "3.3.8"
+    libraries:
+      - "GFX Library for Arduino (1.6.5)"
+      - "Adafruit GFX Library (1.11.11)"
+      - "Adafruit ST7735 and ST7789 Library (1.11.0)"
+      - "Adafruit XCA9554 (1.0.0)"
+      - "Adafruit BusIO (1.17.4)"
+
+  debug-cdc-147:
+    fqbn: "esp32:esp32:esp32s3:USBMode=default,CDCOnBoot=cdc,MSCOnBoot=default,DFUOnBoot=default,UploadMode=default,CPUFreq=240,FlashMode=qio,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,DebugLevel=debug,PSRAM=opi,LoopCore=1,EventsCore=1,EraseFlash=none"
+    platforms:
+      - platform: "esp32:esp32"
+        version: "3.3.8"
+    libraries:
+      - "GFX Library for Arduino (1.6.5)"
+      - "Adafruit GFX Library (1.11.11)"
+      - "Adafruit ST7735 and ST7789 Library (1.11.0)"
+      - "Adafruit XCA9554 (1.0.0)"
+      - "Adafruit BusIO (1.17.4)"

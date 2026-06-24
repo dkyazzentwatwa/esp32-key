@@ -1,6 +1,6 @@
 # Agent Instructions
 
-This repository is an Arduino CLI-only firmware project for the Waveshare ESP32-S3-Touch-AMOLED-1.8 FIDO/WebAuthn lab key.
+This repository is an Arduino CLI-only firmware project for Waveshare ESP32-S3 display-board FIDO/WebAuthn lab keys.
 
 Follow these instructions for all future coding-agent work in this repo.
 
@@ -20,21 +20,35 @@ Primary compile command:
 arduino-cli compile --profile fido-lab /Users/cypher/Documents/GitHub/esp32-key
 ```
 
+Touch-LCD-1.47 compile command:
+
+```sh
+arduino-cli compile --profile fido-lab-147 /Users/cypher/Documents/GitHub/esp32-key
+```
+
 Primary upload command:
 
 ```sh
 arduino-cli upload --profile fido-lab -p /dev/cu.usbmodemXXXX /Users/cypher/Documents/GitHub/esp32-key
 ```
 
+Touch-LCD-1.47 upload command:
+
+```sh
+arduino-cli upload --profile fido-lab-147 -p /dev/cu.usbmodemXXXX /Users/cypher/Documents/GitHub/esp32-key
+```
+
 ## Profiles
 
 Use `fido-lab` for realistic browser and WebAuthn testing.
 
-Use `debug-cdc` only for bring-up work that explicitly needs serial diagnostics. Do not make browser success depend on debug serial output.
+Use `fido-lab-147` for the Waveshare ESP32-S3-Touch-LCD-1.47 board.
+
+Use `debug-cdc` or `debug-cdc-147` only for bring-up work that explicitly needs serial diagnostics. Do not make browser success depend on debug serial output.
 
 Do not casually change:
 
-- Target FQBN: `esp32:esp32:waveshare_esp32_s3_touch_amoled_18`
+- Target FQBNs: `esp32:esp32:waveshare_esp32_s3_touch_amoled_18` for the 1.8 AMOLED board and `esp32:esp32:esp32s3` for the 1.47 Touch-LCD board.
 - ESP32 Arduino core baseline: `3.3.8`
 - Partition/profile choices in `sketch.yaml`
 - USB HID report size

@@ -1,14 +1,14 @@
 # Solo-Like Lab Plus Roadmap
 
-Status: roadmap implementation tracker  
-Target: Waveshare ESP32-S3-Touch-AMOLED-1.8  
+Status: roadmap implementation tracker
+Targets: Waveshare ESP32-S3-Touch-AMOLED-1.8 and ESP32-S3-Touch-LCD-1.47
 Security posture: Lab Plus, not production or FIDO certified
 
 ## Summary
 
-This roadmap moves the working ESP32-S3 AMOLED WebAuthn lab key toward a Solo-like developer authenticator while keeping the claims conservative. The goal is better CTAP2 correctness, browser compatibility, standard host-entered PIN support, resident credentials, credential management, and richer AMOLED/touch diagnostics.
+This roadmap moves the working ESP32-S3 display-board WebAuthn lab key toward a Solo-like developer authenticator while keeping the claims conservative. The goal is better CTAP2 correctness, browser compatibility, standard host-entered PIN support, resident credentials, credential management, and richer display diagnostics.
 
-The PIN direction is standard CTAP `authenticatorClientPIN`: the browser or OS prompts for PIN entry, and the AMOLED shows status only. The 1.8 inch touch screen may later host local admin/settings UI, but it must not become the browser PIN entry path.
+The PIN direction is standard CTAP `authenticatorClientPIN`: the browser or OS prompts for PIN entry, and the board display shows status only. Touch hardware may later host local admin/settings UI, but it must not become the browser PIN entry path.
 
 ## Milestones
 
@@ -58,7 +58,7 @@ Current status:
 - Support `rk=true` makeCredential requests.
 - Support getAssertion without an allow list.
 - Add `authenticatorGetNextAssertion` for multiple credentials.
-- Use AMOLED screens for RP/account display and BOOT confirmation.
+- Use board display screens for RP/account display and BOOT confirmation.
 
 Current status:
 
@@ -71,24 +71,24 @@ Current status:
 - Enumerate credentials for a relying party.
 - Delete credentials with physical confirmation.
 - Update user information where supported.
-- Show credential count and storage-full states on AMOLED.
+- Show credential count and storage-full states on the board display.
 
 Current status:
 
 - Minimal lab implementation exists for resident-credential metadata, RP enumeration, credential enumeration, delete, and user-info update.
 - `tools/ctaphid_probe.py --cred-mgmt-smoke` covers create, enumerate, delete, and post-delete failure.
-- AMOLED admin reset shows credential count/storage-full state and can wipe all credentials plus the lab PIN through a two-hold BOOT confirmation.
+- Display admin reset shows credential count/storage-full state and can wipe all credentials plus the lab PIN through a two-hold BOOT confirmation.
 
 ### 6. Touch/Admin UX
 
-- Bring up FT3168/FT6146 touch as a separate module.
+- Bring up touch controllers as separate modules when they are needed for local diagnostics.
 - Test false activations before using touch near sensitive flows.
 - Use touch for local diagnostics/settings only.
 - Keep BOOT as the required confirmation for create/sign/delete/reset.
 
 Current status:
 
-- BOOT-only AMOLED admin reset exists.
+- BOOT-only display admin reset exists.
 - Individual credential browsing/deletion is still future touch/admin UI work.
 
 ### 7. Compatibility Matrix
@@ -124,7 +124,17 @@ Current status:
 - Implemented as an optional, redacted recorder on the onboard TF slot using 1-bit SD_MMC (`CLK=2`, `CMD=1`, `D0=3`), with no USB mass-storage surface and no credential export path.
 - Writes `/fido-lab/sessions/session-NNN.jsonl` and `/fido-lab/proofs/session-NNN.md` when a FAT32 card is present; missing/failed SD is passive and must not block FIDO flows.
 - Logs CTAP/HID command names, statuses, counts, flags, redacted RP labels, short RP hashes, proof notes, and boot/error breadcrumbs. It never logs private keys, master secrets, PINs, PIN tokens, clientDataHash values, signatures, raw credential IDs, usernames, or display names.
-- The AMOLED ready/admin screens show passive SD state and the last redacted event summary without interrupting browser prompts or synthetic `.dummy` handling.
+- The ready/admin screens show passive SD state and the last redacted event summary without interrupting browser prompts or synthetic `.dummy` handling.
+
+### 10. Waveshare Touch-LCD-1.47 Profile
+
+Current status:
+
+- `fido-lab-147` and `debug-cdc-147` build profiles exist for the Waveshare ESP32-S3-Touch-LCD-1.47.
+- The 1.47 board uses the generic `esp32:esp32:esp32s3` FQBN with 16 MB flash, OPI PSRAM, TinyUSB mode, and the existing 3 MB app partition.
+- The 1.47 runtime sets TinyUSB VID/PID to the working Waveshare AMOLED lab identity for iOS/WebAuthn.me compatibility testing, without changing the FIDO HID report descriptor or adding USB interfaces.
+- `src/BoardProfile.h` selects the compact 172 x 320 ST7789-compatible LCD UI and preserves BOOT/GPIO0 as the FIDO user-presence input.
+- Touch is not used as an approval mechanism.
 
 ## Test Commands
 
@@ -132,12 +142,14 @@ Compile:
 
 ```sh
 arduino-cli compile --profile fido-lab /Users/cypher/Documents/GitHub/esp32-key
+arduino-cli compile --profile fido-lab-147 /Users/cypher/Documents/GitHub/esp32-key
 ```
 
 Upload:
 
 ```sh
 arduino-cli upload --profile fido-lab -p /dev/cu.usbmodemXXXX /Users/cypher/Documents/GitHub/esp32-key
+arduino-cli upload --profile fido-lab-147 -p /dev/cu.usbmodemXXXX /Users/cypher/Documents/GitHub/esp32-key
 ```
 
 Basic probe:

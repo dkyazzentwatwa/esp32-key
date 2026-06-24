@@ -8,8 +8,8 @@ Esp32KeyApp::Esp32KeyApp()
 
 void Esp32KeyApp::begin() {
   Diagnostics::begin();
-  Serial.println("ESP32-S3 AMOLED FIDO lab key boot marker");
-  Diagnostics::log("ESP32-S3 AMOLED FIDO lab key boot");
+  Serial.printf("%s boot marker\n", BuildConfig::kDeviceName);
+  Diagnostics::logf("%s boot", BuildConfig::kDeviceName);
   presence_.begin();
   ux_.begin();
   crypto_.begin();

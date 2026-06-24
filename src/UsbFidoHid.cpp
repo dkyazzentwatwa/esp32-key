@@ -85,6 +85,10 @@ void UsbFidoHid::begin() {
   fidoDevice.setCtap(&ctap_);
   ctap_.begin(sendThunk, this);
   fidoDevice.begin();
+  if (BuildConfig::kOverrideUsbIdentity) {
+    USB.VID(BuildConfig::kUsbVid);
+    USB.PID(BuildConfig::kUsbPid);
+  }
   USB.manufacturerName(BuildConfig::kManufacturer);
   USB.productName(BuildConfig::kDeviceName);
   USB.begin();

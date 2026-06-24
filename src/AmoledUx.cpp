@@ -3,26 +3,14 @@
 #include <Wire.h>
 #include <string.h>
 
+#include "BoardProfile.h"
 #include "Diagnostics.h"
 
 namespace {
-constexpr uint16_t LCD_WIDTH = 368;
-constexpr uint16_t LCD_HEIGHT = 448;
-constexpr uint8_t LCD_ROTATION = 0;
-
-constexpr int PIN_LCD_SDIO0 = 4;
-constexpr int PIN_LCD_SDIO1 = 5;
-constexpr int PIN_LCD_SDIO2 = 6;
-constexpr int PIN_LCD_SDIO3 = 7;
-constexpr int PIN_LCD_SCLK = 11;
-constexpr int PIN_LCD_CS = 12;
-constexpr int PIN_LCD_RST = -1;
-
-constexpr int PIN_TOUCH_SDA = 15;
-constexpr int PIN_TOUCH_SCL = 14;
-
-constexpr uint8_t AMOLED_EXPANDER_I2C_ADDR = 0x20;
-constexpr uint8_t AMOLED_BRIGHTNESS = 220;
+constexpr uint16_t LCD_WIDTH = BoardProfile::kDisplayWidth;
+constexpr uint16_t LCD_HEIGHT = BoardProfile::kDisplayHeight;
+constexpr uint8_t LCD_ROTATION = BoardProfile::kDisplayRotation;
+constexpr bool SMALL_UI = BoardProfile::kSmallDisplay;
 
 constexpr uint16_t COLOR_BG = 0x0000;
 constexpr uint16_t COLOR_PANEL = 0x1082;
@@ -34,10 +22,14 @@ constexpr uint16_t COLOR_GOOD = 0x07E0;
 constexpr uint16_t COLOR_WARN = 0xFD20;
 constexpr uint16_t COLOR_BAD = 0xF800;
 
-constexpr int16_t PAD = 22;
-constexpr int16_t HEADER_H = 58;
-constexpr int16_t FOOTER_H = 42;
-constexpr int16_t BODY_TOP = 82;
+constexpr int16_t PAD = SMALL_UI ? 8 : 22;
+constexpr int16_t HEADER_H = SMALL_UI ? 28 : 58;
+constexpr int16_t FOOTER_H = SMALL_UI ? 22 : 42;
+constexpr int16_t BODY_TOP = SMALL_UI ? 42 : 82;
+constexpr uint8_t TITLE_TEXT = SMALL_UI ? 2 : 3;
+constexpr uint8_t BODY_TEXT = SMALL_UI ? 1 : 2;
+constexpr uint8_t HEADER_TEXT = SMALL_UI ? 1 : 2;
+constexpr size_t LINE_CHARS = SMALL_UI ? 20 : 30;
 
 void copyClipped(char *out, size_t outLen, const char *in, size_t maxChars) {
   if (!outLen) return;
@@ -56,25 +48,51 @@ void copyClipped(char *out, size_t outLen, const char *in, size_t maxChars) {
 }
 }  // namespace
 
-void AmoledUx::begin() {
-  initPowerExpander();
+#if defined(ESP32_KEY_BOARD_TOUCH_LCD147)
+void Esp32KeyST7789::applyMadctlFix(uint8_t rotation, bool mirrorX, bool mirrorY) {
+  uint8_t madctl = 0;
+  switch (rotation % 4) {
+    case 0:
+      madctl = ST77XX_MADCTL_MX | ST77XX_MADCTL_MY | ST77XX_MADCTL_RGB;
+      break;
+    case 1:
+      madctl = ST77XX_MADCTL_MY | ST77XX_MADCTL_MV | ST77XX_MADCTL_RGB;
+      break;
+    case 2:
+      madctl = ST77XX_MADCTL_RGB;
+      break;
+    case 3:
+      madctl = ST77XX_MADCTL_MX | ST77XX_MADCTL_MV | ST77XX_MADCTL_RGB;
+      break;
+  }
 
-  bus_ = new Arduino_ESP32QSPI(PIN_LCD_CS, PIN_LCD_SCLK, PIN_LCD_SDIO0, PIN_LCD_SDIO1,
-                               PIN_LCD_SDIO2, PIN_LCD_SDIO3);
-  display_ = new Arduino_SH8601(bus_, PIN_LCD_RST, LCD_ROTATION, LCD_WIDTH, LCD_HEIGHT);
-  if (!display_->begin()) {
-    Diagnostics::log("UX: SH8601 init failed");
+  if (mirrorX) {
+    madctl ^= ST77XX_MADCTL_MX;
+  }
+  if (mirrorY) {
+    madctl ^= ST77XX_MADCTL_MY;
+  }
+
+  sendCommand(ST77XX_MADCTL, &madctl, 1);
+}
+#endif
+
+void AmoledUx::begin() {
+  if (!initDisplay() || !beginDisplay()) {
+    Diagnostics::log("UX: display init failed");
     ready_ = false;
     return;
   }
 
-  display_->setRotation(LCD_ROTATION);
-  display_->setBrightness(AMOLED_BRIGHTNESS);
-  display_->setTextWrap(false);
-  display_->fillScreen(COLOR_BG);
+  setDisplayRotation(LCD_ROTATION);
+#if defined(ESP32_KEY_BOARD_AMOLED18)
+  amoled_->setBrightness(BoardProfile::kAmoledBrightness);
+#endif
+  setDisplayTextWrap(false);
+  displayFillScreen(COLOR_BG);
   ready_ = true;
   idle();
-  Diagnostics::log("UX: AMOLED ready");
+  Diagnostics::logf("UX: display ready: %s", BoardProfile::kBoardName);
 }
 
 void AmoledUx::idle() {
@@ -83,10 +101,13 @@ void AmoledUx::idle() {
 
   returnToReadyAt_ = 0;
   drawBase("ESP32 FIDO", COLOR_ACCENT, "Lab build only");
-  printText(PAD, BODY_TOP, "Authenticator", 3, COLOR_TEXT, COLOR_BG);
-  printText(PAD, BODY_TOP + 54, "Waiting for USB host", 2, COLOR_DIM, COLOR_BG);
-  printText(PAD, BODY_TOP + 104, "No secrets on screen", 2, COLOR_DIM, COLOR_BG);
-  printText(PAD, BODY_TOP + 158, "Use test accounts only", 2, COLOR_WARN, COLOR_BG);
+  printText(PAD, BODY_TOP, "Authenticator", TITLE_TEXT, COLOR_TEXT, COLOR_BG);
+  printText(PAD, BODY_TOP + (SMALL_UI ? 34 : 54), "Waiting for USB host", BODY_TEXT, COLOR_DIM,
+            COLOR_BG);
+  printText(PAD, BODY_TOP + (SMALL_UI ? 58 : 104), "No secrets on screen", BODY_TEXT, COLOR_DIM,
+            COLOR_BG);
+  printText(PAD, BODY_TOP + (SMALL_UI ? 82 : 158), "Use test accounts only", BODY_TEXT,
+            COLOR_WARN, COLOR_BG);
 }
 
 void AmoledUx::usbReady() {
@@ -95,14 +116,19 @@ void AmoledUx::usbReady() {
 
   returnToReadyAt_ = 0;
   drawBase("ESP32 FIDO", COLOR_GOOD, "BOOT confirms actions");
-  printText(PAD, BODY_TOP, "USB HID ready", 3, COLOR_GOOD, COLOR_BG);
-  printText(PAD, BODY_TOP + 58, "Waiting for WebAuthn", 2, COLOR_TEXT, COLOR_BG);
+  printText(PAD, BODY_TOP, "USB HID ready", TITLE_TEXT, COLOR_GOOD, COLOR_BG);
+  printText(PAD, BODY_TOP + (SMALL_UI ? 34 : 58), "Waiting for WebAuthn", BODY_TEXT, COLOR_TEXT,
+            COLOR_BG);
   if (!hasTrace_) {
-    printText(PAD, BODY_TOP + 108, "Register/sign-in prompts", 2, COLOR_DIM, COLOR_BG);
-    printText(PAD, BODY_TOP + 136, "will appear here.", 2, COLOR_DIM, COLOR_BG);
+    printText(PAD, BODY_TOP + (SMALL_UI ? 58 : 108), "Register/sign-in prompts", BODY_TEXT,
+              COLOR_DIM, COLOR_BG);
+    printText(PAD, BODY_TOP + (SMALL_UI ? 76 : 136), "will appear here.", BODY_TEXT, COLOR_DIM,
+              COLOR_BG);
     if (hasRecorderStatus_) {
-      printClipped(PAD, BODY_TOP + 190, recorderStatus_, 30, 2, COLOR_DIM, COLOR_BG);
-      printClipped(PAD, BODY_TOP + 220, recorderLast_, 30, 2, COLOR_DIM, COLOR_BG);
+      printClipped(PAD, BODY_TOP + (SMALL_UI ? 112 : 190), recorderStatus_, LINE_CHARS, BODY_TEXT,
+                   COLOR_DIM, COLOR_BG);
+      printClipped(PAD, BODY_TOP + (SMALL_UI ? 130 : 220), recorderLast_, LINE_CHARS, BODY_TEXT,
+                   COLOR_DIM, COLOR_BG);
     }
     return;
   }
@@ -110,14 +136,19 @@ void AmoledUx::usbReady() {
   // tell real RP activity apart from synthetic/fallback host probes.
   char line[48];
   snprintf(line, sizeof(line), "Last: %s", traceCommand_);
-  printClipped(PAD, BODY_TOP + 104, line, 30, 2, COLOR_DIM, COLOR_BG);
+  printClipped(PAD, BODY_TOP + (SMALL_UI ? 58 : 104), line, LINE_CHARS, BODY_TEXT, COLOR_DIM,
+               COLOR_BG);
   snprintf(line, sizeof(line), "%s %s", traceSynthetic_ ? "synthetic" : "RP", traceRp_);
-  printClipped(PAD, BODY_TOP + 134, line, 30, 2, traceSynthetic_ ? COLOR_WARN : COLOR_TEXT, COLOR_BG);
+  printClipped(PAD, BODY_TOP + (SMALL_UI ? 76 : 134), line, LINE_CHARS, BODY_TEXT,
+               traceSynthetic_ ? COLOR_WARN : COLOR_TEXT, COLOR_BG);
   snprintf(line, sizeof(line), "Status: %s", traceStatus_);
-  printClipped(PAD, BODY_TOP + 164, line, 30, 2, COLOR_DIM, COLOR_BG);
+  printClipped(PAD, BODY_TOP + (SMALL_UI ? 94 : 164), line, LINE_CHARS, BODY_TEXT, COLOR_DIM,
+               COLOR_BG);
   if (hasRecorderStatus_) {
-    printClipped(PAD, BODY_TOP + 212, recorderStatus_, 30, 2, COLOR_DIM, COLOR_BG);
-    printClipped(PAD, BODY_TOP + 242, recorderLast_, 30, 2, COLOR_DIM, COLOR_BG);
+    printClipped(PAD, BODY_TOP + (SMALL_UI ? 124 : 212), recorderStatus_, LINE_CHARS, BODY_TEXT,
+                 COLOR_DIM, COLOR_BG);
+    printClipped(PAD, BODY_TOP + (SMALL_UI ? 142 : 242), recorderLast_, LINE_CHARS, BODY_TEXT,
+                 COLOR_DIM, COLOR_BG);
   }
 }
 
@@ -127,9 +158,10 @@ void AmoledUx::diagnostic(const char *title, const char *line1, const char *line
   if (!ready_) return;
 
   drawBase(title ? title : "Diagnostic", COLOR_ACCENT, "Browser trace");
-  printClipped(PAD, BODY_TOP, line1 ? line1 : "", 30, 2, COLOR_TEXT, COLOR_BG);
+  printClipped(PAD, BODY_TOP, line1 ? line1 : "", LINE_CHARS, BODY_TEXT, COLOR_TEXT, COLOR_BG);
   if (line2 && line2[0]) {
-    printClipped(PAD, BODY_TOP + 40, line2, 30, 2, COLOR_DIM, COLOR_BG);
+    printClipped(PAD, BODY_TOP + (SMALL_UI ? 24 : 40), line2, LINE_CHARS, BODY_TEXT, COLOR_DIM,
+                 COLOR_BG);
   }
   returnToReadyAt_ = millis() + 1800;
 }
@@ -140,9 +172,10 @@ void AmoledUx::diagnosticError(const char *title, const char *line1, const char 
   if (!ready_) return;
 
   drawBase(title ? title : "Rejected", COLOR_BAD, "Check settings");
-  printClipped(PAD, BODY_TOP, line1 ? line1 : "", 30, 2, COLOR_BAD, COLOR_BG);
+  printClipped(PAD, BODY_TOP, line1 ? line1 : "", LINE_CHARS, BODY_TEXT, COLOR_BAD, COLOR_BG);
   if (line2 && line2[0]) {
-    printClipped(PAD, BODY_TOP + 40, line2, 30, 2, COLOR_TEXT, COLOR_BG);
+    printClipped(PAD, BODY_TOP + (SMALL_UI ? 24 : 40), line2, LINE_CHARS, BODY_TEXT, COLOR_TEXT,
+                 COLOR_BG);
   }
   returnToReadyAt_ = millis() + 5000;
 }
@@ -155,14 +188,19 @@ void AmoledUx::waitingForPresence(const char *action, const char *rpId) {
   char actionLine[32];
   char rpLine[40];
   copyClipped(actionLine, sizeof(actionLine), action ? action : "Confirm", 20);
-  copyClipped(rpLine, sizeof(rpLine), rpId && rpId[0] ? rpId : "unknown relying party", 31);
+  copyClipped(rpLine, sizeof(rpLine), rpId && rpId[0] ? rpId : "unknown relying party",
+              SMALL_UI ? 21 : 31);
 
   drawBase("User Presence", COLOR_WARN, "Press BOOT to approve");
-  printText(PAD, BODY_TOP, actionLine, 3, COLOR_WARN, COLOR_BG);
-  printText(PAD, BODY_TOP + 62, "Relying party", 2, COLOR_DIM, COLOR_BG);
-  printClipped(PAD, BODY_TOP + 94, rpLine, 31, 2, COLOR_TEXT, COLOR_BG);
-  printText(PAD, BODY_TOP + 156, "Only approve requests", 2, COLOR_TEXT, COLOR_BG);
-  printText(PAD, BODY_TOP + 184, "you started.", 2, COLOR_TEXT, COLOR_BG);
+  printText(PAD, BODY_TOP, actionLine, TITLE_TEXT, COLOR_WARN, COLOR_BG);
+  printText(PAD, BODY_TOP + (SMALL_UI ? 36 : 62), "Relying party", BODY_TEXT, COLOR_DIM,
+            COLOR_BG);
+  printClipped(PAD, BODY_TOP + (SMALL_UI ? 54 : 94), rpLine, LINE_CHARS, BODY_TEXT, COLOR_TEXT,
+               COLOR_BG);
+  printText(PAD, BODY_TOP + (SMALL_UI ? 90 : 156), "Only approve requests", BODY_TEXT,
+            COLOR_TEXT, COLOR_BG);
+  printText(PAD, BODY_TOP + (SMALL_UI ? 108 : 184), "you started.", BODY_TEXT, COLOR_TEXT,
+            COLOR_BG);
 }
 
 void AmoledUx::adminStatus(size_t totalCredentials, size_t residentCredentials, size_t remainingSlots,
@@ -180,27 +218,34 @@ void AmoledUx::adminStatus(size_t totalCredentials, size_t residentCredentials, 
   char line[40];
   snprintf(line, sizeof(line), "Credentials: %u/%u", static_cast<unsigned>(totalCredentials),
            static_cast<unsigned>(totalCredentials + remainingSlots));
-  printText(PAD, BODY_TOP, line, 2, full ? COLOR_WARN : COLOR_TEXT, COLOR_BG);
+  printText(PAD, BODY_TOP, line, BODY_TEXT, full ? COLOR_WARN : COLOR_TEXT, COLOR_BG);
 
   snprintf(line, sizeof(line), "Discoverable: %u", static_cast<unsigned>(residentCredentials));
-  printText(PAD, BODY_TOP + 38, line, 2, COLOR_DIM, COLOR_BG);
+  printText(PAD, BODY_TOP + (SMALL_UI ? 20 : 38), line, BODY_TEXT, COLOR_DIM, COLOR_BG);
 
   snprintf(line, sizeof(line), "Free slots: %u", static_cast<unsigned>(remainingSlots));
-  printText(PAD, BODY_TOP + 76, line, 2, full ? COLOR_BAD : COLOR_GOOD, COLOR_BG);
+  printText(PAD, BODY_TOP + (SMALL_UI ? 40 : 76), line, BODY_TEXT, full ? COLOR_BAD : COLOR_GOOD,
+            COLOR_BG);
 
   if (full) {
-    printText(PAD, BODY_TOP + 122, "Storage full", 3, COLOR_WARN, COLOR_BG);
+    printText(PAD, BODY_TOP + (SMALL_UI ? 66 : 122), "Storage full", TITLE_TEXT, COLOR_WARN,
+              COLOR_BG);
   }
 
   if (awaitingConfirm) {
-    printText(PAD, BODY_TOP + 176, "This wipes credentials", 2, COLOR_TEXT, COLOR_BG);
-    printText(PAD, BODY_TOP + 204, "and the lab PIN.", 2, COLOR_TEXT, COLOR_BG);
+    printText(PAD, BODY_TOP + (SMALL_UI ? 106 : 176), "This wipes credentials", BODY_TEXT,
+              COLOR_TEXT, COLOR_BG);
+    printText(PAD, BODY_TOP + (SMALL_UI ? 124 : 204), "and the lab PIN.", BODY_TEXT, COLOR_TEXT,
+              COLOR_BG);
   } else {
-    printText(PAD, BODY_TOP + 176, "Hold BOOT again to", 2, COLOR_TEXT, COLOR_BG);
-    printText(PAD, BODY_TOP + 204, "open wipe confirm.", 2, COLOR_TEXT, COLOR_BG);
+    printText(PAD, BODY_TOP + (SMALL_UI ? 106 : 176), "Hold BOOT again to", BODY_TEXT,
+              COLOR_TEXT, COLOR_BG);
+    printText(PAD, BODY_TOP + (SMALL_UI ? 124 : 204), "open wipe confirm.", BODY_TEXT, COLOR_TEXT,
+              COLOR_BG);
   }
   if (hasRecorderStatus_) {
-    printClipped(PAD, BODY_TOP + 252, recorderStatus_, 30, 2, COLOR_DIM, COLOR_BG);
+    printClipped(PAD, BODY_TOP + (SMALL_UI ? 156 : 252), recorderStatus_, LINE_CHARS, BODY_TEXT,
+                 COLOR_DIM, COLOR_BG);
   }
 }
 
@@ -244,30 +289,33 @@ void AmoledUx::poll() {
 void AmoledUx::drawBase(const char *title, uint16_t accentColor, const char *footer) {
   if (!ready_) return;
 
-  display_->fillScreen(COLOR_BG);
-  display_->fillRect(0, 0, LCD_WIDTH, HEADER_H, COLOR_PANEL);
-  display_->fillRect(0, HEADER_H - 4, LCD_WIDTH, 4, accentColor);
-  printText(PAD, 18, title, 2, COLOR_TEXT, COLOR_PANEL);
+  displayFillScreen(COLOR_BG);
+  displayFillRect(0, 0, LCD_WIDTH, HEADER_H, COLOR_PANEL);
+  displayFillRect(0, HEADER_H - (SMALL_UI ? 3 : 4), LCD_WIDTH, SMALL_UI ? 3 : 4,
+                  accentColor);
+  printText(PAD, SMALL_UI ? 8 : 18, title, HEADER_TEXT, COLOR_TEXT, COLOR_PANEL);
 
-  display_->fillRect(0, LCD_HEIGHT - FOOTER_H, LCD_WIDTH, FOOTER_H, COLOR_PANEL_2);
-  printText(PAD, LCD_HEIGHT - 29, footer, 2, COLOR_DIM, COLOR_PANEL_2);
+  displayFillRect(0, LCD_HEIGHT - FOOTER_H, LCD_WIDTH, FOOTER_H, COLOR_PANEL_2);
+  printClipped(PAD, LCD_HEIGHT - (SMALL_UI ? 15 : 29), footer, LINE_CHARS, BODY_TEXT, COLOR_DIM,
+               COLOR_PANEL_2);
 }
 
 void AmoledUx::drawStatus(const char *label, const char *message, uint16_t color) {
   if (!ready_) return;
 
   drawBase(label, color, "Ready for next request");
-  printText(PAD, BODY_TOP, label, 3, color, COLOR_BG);
-  printClipped(PAD, BODY_TOP + 66, message ? message : "", 29, 2, COLOR_TEXT, COLOR_BG);
+  printText(PAD, BODY_TOP, label, TITLE_TEXT, color, COLOR_BG);
+  printClipped(PAD, BODY_TOP + (SMALL_UI ? 40 : 66), message ? message : "", LINE_CHARS,
+               BODY_TEXT, COLOR_TEXT, COLOR_BG);
 }
 
 void AmoledUx::printText(int16_t x, int16_t y, const char *text, uint8_t size, uint16_t color,
                          uint16_t bg) {
   if (!ready_) return;
-  display_->setTextSize(size);
-  display_->setTextColor(color, bg);
-  display_->setCursor(x, y);
-  display_->print(text ? text : "");
+  displaySetTextSize(size);
+  displaySetTextColor(color, bg);
+  displaySetCursor(x, y);
+  displayPrint(text ? text : "");
 }
 
 void AmoledUx::printClipped(int16_t x, int16_t y, const char *text, size_t maxChars,
@@ -277,9 +325,113 @@ void AmoledUx::printClipped(int16_t x, int16_t y, const char *text, size_t maxCh
   printText(x, y, line, size, color, bg);
 }
 
-void AmoledUx::initPowerExpander() {
-  Wire.begin(PIN_TOUCH_SDA, PIN_TOUCH_SCL);
-  if (!expander_.begin(AMOLED_EXPANDER_I2C_ADDR, &Wire)) {
+bool AmoledUx::initDisplay() {
+#if defined(ESP32_KEY_BOARD_AMOLED18)
+  initAmoledPowerExpander();
+  bus_ = new Arduino_ESP32QSPI(BoardProfile::kDisplayCs, BoardProfile::kDisplaySclk,
+                               BoardProfile::kAmoledSdio0, BoardProfile::kAmoledSdio1,
+                               BoardProfile::kAmoledSdio2, BoardProfile::kAmoledSdio3);
+  amoled_ = new Arduino_SH8601(bus_, BoardProfile::kDisplayRst, LCD_ROTATION, LCD_WIDTH,
+                               LCD_HEIGHT);
+  display_ = amoled_;
+  return display_ != nullptr;
+#elif defined(ESP32_KEY_BOARD_TOUCH_LCD147)
+  pinMode(BoardProfile::kDisplayBacklight, OUTPUT);
+  digitalWrite(BoardProfile::kDisplayBacklight, HIGH);
+  SPI.begin(BoardProfile::kDisplaySclk, -1, BoardProfile::kDisplayMosi,
+            BoardProfile::kDisplayCs);
+  lcd_ = new Esp32KeyST7789(&SPI, BoardProfile::kDisplayCs, BoardProfile::kDisplayDc,
+                            BoardProfile::kDisplayRst);
+  return lcd_ != nullptr;
+#else
+  return false;
+#endif
+}
+
+bool AmoledUx::beginDisplay() {
+#if defined(ESP32_KEY_BOARD_AMOLED18)
+  return display_ && display_->begin();
+#elif defined(ESP32_KEY_BOARD_TOUCH_LCD147)
+  if (!lcd_) return false;
+  lcd_->init(LCD_WIDTH, LCD_HEIGHT, SPI_MODE0);
+  lcd_->setColRowStart(BoardProfile::kDisplayColOffset, BoardProfile::kDisplayRowOffset);
+  return true;
+#else
+  return false;
+#endif
+}
+
+void AmoledUx::setDisplayRotation(uint8_t rotation) {
+#if defined(ESP32_KEY_BOARD_AMOLED18)
+  if (display_) display_->setRotation(rotation);
+#elif defined(ESP32_KEY_BOARD_TOUCH_LCD147)
+  if (lcd_) {
+    lcd_->setRotation(rotation);
+    lcd_->applyMadctlFix(rotation, true, false);
+  }
+#endif
+}
+
+void AmoledUx::setDisplayTextWrap(bool wrap) {
+#if defined(ESP32_KEY_BOARD_AMOLED18)
+  if (display_) display_->setTextWrap(wrap);
+#elif defined(ESP32_KEY_BOARD_TOUCH_LCD147)
+  if (lcd_) lcd_->setTextWrap(wrap);
+#endif
+}
+
+void AmoledUx::displayFillScreen(uint16_t color) {
+#if defined(ESP32_KEY_BOARD_AMOLED18)
+  if (display_) display_->fillScreen(color);
+#elif defined(ESP32_KEY_BOARD_TOUCH_LCD147)
+  if (lcd_) lcd_->fillScreen(color);
+#endif
+}
+
+void AmoledUx::displayFillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color) {
+#if defined(ESP32_KEY_BOARD_AMOLED18)
+  if (display_) display_->fillRect(x, y, w, h, color);
+#elif defined(ESP32_KEY_BOARD_TOUCH_LCD147)
+  if (lcd_) lcd_->fillRect(x, y, w, h, color);
+#endif
+}
+
+void AmoledUx::displaySetTextSize(uint8_t size) {
+#if defined(ESP32_KEY_BOARD_AMOLED18)
+  if (display_) display_->setTextSize(size);
+#elif defined(ESP32_KEY_BOARD_TOUCH_LCD147)
+  if (lcd_) lcd_->setTextSize(size);
+#endif
+}
+
+void AmoledUx::displaySetTextColor(uint16_t color, uint16_t bg) {
+#if defined(ESP32_KEY_BOARD_AMOLED18)
+  if (display_) display_->setTextColor(color, bg);
+#elif defined(ESP32_KEY_BOARD_TOUCH_LCD147)
+  if (lcd_) lcd_->setTextColor(color, bg);
+#endif
+}
+
+void AmoledUx::displaySetCursor(int16_t x, int16_t y) {
+#if defined(ESP32_KEY_BOARD_AMOLED18)
+  if (display_) display_->setCursor(x, y);
+#elif defined(ESP32_KEY_BOARD_TOUCH_LCD147)
+  if (lcd_) lcd_->setCursor(x, y);
+#endif
+}
+
+void AmoledUx::displayPrint(const char *text) {
+#if defined(ESP32_KEY_BOARD_AMOLED18)
+  if (display_) display_->print(text ? text : "");
+#elif defined(ESP32_KEY_BOARD_TOUCH_LCD147)
+  if (lcd_) lcd_->print(text ? text : "");
+#endif
+}
+
+void AmoledUx::initAmoledPowerExpander() {
+#if defined(ESP32_KEY_BOARD_AMOLED18)
+  Wire.begin(BoardProfile::kI2cSda, BoardProfile::kI2cScl);
+  if (!expander_.begin(BoardProfile::kAmoledExpanderAddr, &Wire)) {
     Diagnostics::log("UX: XCA9554 not found; trying AMOLED init");
     return;
   }
@@ -294,4 +446,5 @@ void AmoledUx::initPowerExpander() {
   for (uint8_t pin = 0; pin < 3; pin++) {
     expander_.digitalWrite(pin, HIGH);
   }
+#endif
 }

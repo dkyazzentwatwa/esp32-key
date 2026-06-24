@@ -1,10 +1,10 @@
 # CLAUDE.md
 
-Experimental **Arduino CLI** firmware that turns a Waveshare **ESP32-S3-Touch-AMOLED-1.8** into a USB **FIDO/WebAuthn lab key**. It is a learning prototype: not FIDO certified, not production hardened, and for use only with disposable test accounts and lab relying parties (e.g. WebAuthn.io). Keep security language blunt and conservative — see [SECURITY.md](SECURITY.md).
+Experimental **Arduino CLI** firmware that turns Waveshare **ESP32-S3 display boards** into USB **FIDO/WebAuthn lab keys**. It is a learning prototype: not FIDO certified, not production hardened, and for use only with disposable test accounts and lab relying parties (e.g. WebAuthn.io). Keep security language blunt and conservative — see [SECURITY.md](SECURITY.md).
 
 ## Architecture
 
-Data flows host → USB → transport → protocol → crypto/storage, with the AMOLED reflecting state:
+Data flows host → USB → transport → protocol → crypto/storage, with the board display reflecting state:
 
 ```
 esp32-key.ino → src/App (Esp32KeyApp, orchestrates subsystems)
@@ -16,10 +16,10 @@ esp32-key.ino → src/App (Esp32KeyApp, orchestrates subsystems)
   Crypto     src/CryptoProvider  ES256 / P-256 keygen + signing
   Storage    src/CredentialStore NVS, versioned + checksummed records, fixed cap
   Presence   src/UserPresence  BOOT / GPIO0 confirmation
-  UX         src/AmoledUx + src/Diagnostics  status / diagnostic screens
+  UX         src/AmoledUx + src/BoardProfile + src/Diagnostics  status / diagnostic screens
 ```
 
-`src/Ctap2.cpp` is by far the largest module and holds most protocol logic. Configuration truth lives in [sketch.yaml](sketch.yaml) (FQBN, ESP32 core `3.3.8`, `fido-lab` / `debug-cdc` profiles) and [src/BuildConfig.h](src/BuildConfig.h) (device name, pins, limits).
+`src/Ctap2.cpp` is by far the largest module and holds most protocol logic. Configuration truth lives in [sketch.yaml](sketch.yaml) (FQBN, ESP32 core `3.3.8`, `fido-lab` / `debug-cdc` / `fido-lab-147` / `debug-cdc-147` profiles), [src/BoardProfile.h](src/BoardProfile.h) (board display pins/geometry), and [src/BuildConfig.h](src/BuildConfig.h) (device name, pins, limits).
 
 ## Key invariants
 
@@ -31,6 +31,7 @@ esp32-key.ino → src/App (Esp32KeyApp, orchestrates subsystems)
 - Lab CTAP `authenticatorClientPIN` exists for host-entered PIN protocol 2 testing. Built-in UV is still false; use WebAuthn UV `discouraged` unless intentionally testing browser/OS PIN prompts.
 - For resident/discoverable sign-in with UV discouraged, assertions must not include identifying user strings (`name`, `displayName`, `icon`); return only the user handle unless host PIN/UV completed.
 - Optional SD lab recorder uses 1-bit SD_MMC (`CLK=2`, `CMD=1`, `D0=3`) for redacted diagnostics only. Never log secrets, raw credential IDs, PIN material, clientDataHash values, signatures, usernames, display names, or add USB mass storage.
+- `fido-lab-147` targets the Waveshare ESP32-S3-Touch-LCD-1.47 through the generic `esp32:esp32:esp32s3` FQBN, ST7789-compatible 172x320 LCD UI, and BOOT/GPIO0 confirmation. Touch is not a FIDO approval mechanism.
 
 ## Commands
 
@@ -38,11 +39,17 @@ esp32-key.ino → src/App (Esp32KeyApp, orchestrates subsystems)
 # Compile (primary profile for browser/WebAuthn testing)
 arduino-cli compile --profile fido-lab /Users/cypher/Documents/GitHub/esp32-key
 
+# Compile the 1.47 inch Touch-LCD profile
+arduino-cli compile --profile fido-lab-147 /Users/cypher/Documents/GitHub/esp32-key
+
 # Flash (find the port with `arduino-cli board list`)
 arduino-cli upload --profile fido-lab -p /dev/cu.usbmodemXXXX /Users/cypher/Documents/GitHub/esp32-key
+
+# Flash the 1.47 inch Touch-LCD profile
+arduino-cli upload --profile fido-lab-147 -p /dev/cu.usbmodemXXXX /Users/cypher/Documents/GitHub/esp32-key
 ```
 
-Use `debug-cdc` only for bring-up that needs serial logs. Full flash/probe/browser steps are in [README.md](README.md); host tests run through [tools/ctaphid_probe.py](tools/ctaphid_probe.py) (e.g. `--list`, `--ctap2-roundtrip`, `--resident-roundtrip`). Press BOOT once when a probe or browser waits for user presence.
+Use `debug-cdc` / `debug-cdc-147` only for bring-up that needs serial logs. Full flash/probe/browser steps are in [README.md](README.md); host tests run through [tools/ctaphid_probe.py](tools/ctaphid_probe.py) (e.g. `--list`, `--ctap2-roundtrip`, `--resident-roundtrip`). Press BOOT once when a probe or browser waits for user presence.
 
 ## Proof levels
 

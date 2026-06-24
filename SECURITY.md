@@ -1,6 +1,6 @@
 # Security Policy
 
-This repository is an experimental learning project for an ESP32-S3 AMOLED FIDO/WebAuthn lab key. It is not a production security key.
+This repository is an experimental learning project for ESP32-S3 display-board FIDO/WebAuthn lab keys. It is not a production security key.
 
 Do not use this firmware to protect high-value accounts. Do not use it as your only authenticator. Do not use it for personal email, banking, business infrastructure, cloud consoles, source-code hosting, password managers, cryptocurrency, government services, or other important accounts.
 
@@ -77,6 +77,8 @@ Do not claim that this device has a trusted commercial attestation chain. Do not
 
 The intended USB interface is FIDO HID only.
 
+The `fido-lab-147` profile may set the TinyUSB VID/PID to match the working Waveshare AMOLED lab identity for browser and iOS compatibility testing. This is a descriptor identity compatibility tweak only; it must not add keyboard, mouse, storage, serial, or other host-control interfaces to the realistic FIDO lab profiles.
+
 Do not add:
 
 - Keyboard injection.
@@ -87,7 +89,7 @@ Do not add:
 - Credential export commands.
 - Host attack tooling.
 
-The `debug-cdc` profile may be useful during bring-up, but browser compatibility testing should use the realistic FIDO lab profile and should not depend on serial logging.
+The `debug-cdc` and `debug-cdc-147` profiles may be useful during bring-up, but browser compatibility testing should use the realistic FIDO lab profiles and should not depend on serial logging.
 
 ## Safe Testing Rules
 
@@ -137,7 +139,7 @@ Before each test:
 
 - Confirm you are using a disposable account or local relying party.
 - Confirm the browser prompt is for an action you started.
-- Confirm the AMOLED prompt matches the expected action.
+- Confirm the device display prompt matches the expected action.
 - Press BOOT only for requests you intentionally initiated.
 - Wipe credentials before handing the board to another person.
 

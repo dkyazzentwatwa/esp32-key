@@ -1,8 +1,8 @@
 # ESP32-S3 FIDO2/WebAuthn Authenticator Spec
 
-Status: research/specification only  
-Target board: Waveshare ESP32-S3-Touch-AMOLED-1.8  
-Primary implementation direction: Arduino CLI sketch using the ESP32 Arduino core native USB/HID stack  
+Status: research/specification only
+Target boards: Waveshare ESP32-S3-Touch-AMOLED-1.8 and Waveshare ESP32-S3-Touch-LCD-1.47
+Primary implementation direction: Arduino CLI sketch using the ESP32 Arduino core native USB/HID stack
 Security boundary: experimental learning prototype, not a certified or production security key
 
 ## 1. Executive Summary
@@ -11,7 +11,7 @@ This project is an experimental ESP32-S3-based FIDO2/WebAuthn hardware authentic
 
 The firmware must be Arduino CLI only. The repository should be a normal Arduino sketch with a `sketch.yaml` project file and pinned Arduino CLI build profiles. Do not create an ESP-IDF application, PlatformIO project, CMake-based firmware tree, or generated multi-framework scaffold. Low-level ESP32-S3 facts from Espressif ESP-IDF documentation remain useful because the Arduino ESP32 core is built on ESP-IDF and the same silicon, but the project contract is Arduino CLI compile/upload/profile workflow.
 
-The target board is the Waveshare ESP32-S3-Touch-AMOLED-1.8. It provides an ESP32-S3R8, 8 MB PSRAM, 16 MB flash, a 1.8 inch 368 x 448 AMOLED display, capacitive touch, BOOT and PWR buttons, RTC, IMU, audio peripherals, TF card slot, and USB-C wired to the ESP32-S3 native USB interface. The AMOLED screen is useful for visible consent and diagnostics, but the authenticator protocol must work over USB HID without depending on the display.
+The primary target board remains the Waveshare ESP32-S3-Touch-AMOLED-1.8, with a first-class Waveshare ESP32-S3-Touch-LCD-1.47 profile for the smaller display board. Both are ESP32-S3 display boards with native USB, BOOT/GPIO0 available as the physical user-presence input, onboard flash, and a screen suitable for visible consent and diagnostics. The 1.8 board uses a 368 x 448 SH8601 AMOLED panel; the 1.47 board uses a compact 172 x 320 ST7789-compatible LCD panel. The authenticator protocol must work over USB HID without depending on display type.
 
 This is not a certified FIDO authenticator. It is not a production-ready security key, not a safe place for high-value real accounts, and not a replacement for a YubiKey, SoloKey, Titan key, passkey manager, smart card, or platform authenticator. The value of the project is education: learning CTAP HID framing, CTAP2 CBOR commands, WebAuthn credential creation, assertion signing, embedded key storage, and ESP32-S3 hardening tradeoffs.
 
@@ -25,7 +25,7 @@ The project must not include credential theft, covert keyboard injection, phishi
 - Create credentials for local or public test WebAuthn relying parties.
 - Produce authentication assertions for those test relying parties using the stored credential private key.
 - Require physical user presence via a button press before creating credentials, signing assertions, or resetting stored credentials.
-- Use the AMOLED display and optional LED only for transparent status, consent, errors, and lab diagnostics.
+- Use the board display and optional LED only for transparent status, consent, errors, and lab diagnostics.
 - Provide a safe local test workflow that keeps prototype credentials away from important accounts.
 - Keep architecture modular enough that later hardening, storage improvements, and conformance testing can happen without rewriting the whole stack.
 
@@ -62,10 +62,10 @@ User presence and user verification are different. User presence means the user 
 
 Recommended MVP hardware:
 
-- Waveshare ESP32-S3-Touch-AMOLED-1.8 development board.
+- Waveshare ESP32-S3-Touch-AMOLED-1.8 development board, or Waveshare ESP32-S3-Touch-LCD-1.47 with the `fido-lab-147` profile.
 - USB-C data cable connected to the board's ESP32-S3 native USB interface.
 - BOOT button as the required physical user-presence input.
-- AMOLED display as a visible consent/status surface.
+- Board display as a visible consent/status surface.
 - Optional external LED if an enclosure hides the screen or button.
 - Optional enclosure that leaves BOOT accessible and does not encourage accidental activation.
 - Optional secure element for a future version only, not MVP.
@@ -74,8 +74,10 @@ Board-specific facts to carry into firmware design:
 
 - MCU: ESP32-S3R8, dual-core Xtensa LX7 up to 240 MHz.
 - Memory: 8 MB PSRAM, 16 MB NOR flash.
-- Display: 1.8 inch AMOLED, 368 x 448, QSPI SH8601 panel.
-- Touch: FT3168 or FT6146 depending on batch/SKU.
+- Display:
+  - Touch-AMOLED-1.8: 1.8 inch AMOLED, 368 x 448, QSPI SH8601 panel.
+  - Touch-LCD-1.47: 1.47 inch LCD, 172 x 320, SPI ST7789-compatible panel.
+- Touch: FT3168 or FT6146 depending on batch/SKU for the AMOLED board; I2C touch controller on the 1.47 board. Do not use touch as the MVP approval input without board-specific false-activation testing.
 - Buttons: BOOT is readable as GPIO0 when the application is running; pressed state is low. PWR is mediated through the board's power-management/IO-expander path and long holds can power off the board.
 - USB: USB-C is the ESP32-S3 USB interface for flashing and logs. Espressif documents ESP32-S3 USB D+ and D- on GPIO20 and GPIO19.
 - Storage: onboard 16 MB flash is enough for firmware plus a small credential database; TF card must not store private keys in the MVP.
@@ -86,7 +88,7 @@ GPIO and board-integration considerations:
 - Do not repurpose GPIO19/GPIO20; they are the native USB data lines.
 - BOOT/GPIO0 can be used for user presence after boot, but firmware must avoid getting stuck in download mode after crashes or resets.
 - Avoid relying on PWR for required user presence because long press behavior can power off the board.
-- Keep display refresh incremental. Earlier work on this board family showed full-screen redraws can produce visible flicker.
+- Keep display refresh incremental and board-aware. Earlier work on this board family showed full-screen redraws can produce visible flicker; the 1.47 LCD profile also needs compact text and tighter spacing.
 - Treat touch as optional confirmation only after testing false-positive behavior; a physical button is clearer for a security ceremony.
 - If using battery power while connected to USB as a self-powered device, account for VBUS monitoring requirements.
 
@@ -114,7 +116,7 @@ USB host/browser
 +--------------------------+
 | Credential storage       |  NVS records, counters, lifecycle, wipe
 +--------------------------+
-| User presence and UX     |  BOOT press, timeout, AMOLED status, LED state
+| User presence and UX     |  BOOT press, timeout, display status, LED state
 +--------------------------+
 | Lifecycle/debug          |  reset, diagnostics, guarded logs, safe builds
 +--------------------------+
@@ -130,7 +132,7 @@ Module responsibilities:
 - WebAuthn data model: construct authenticator data, attested credential data, COSE keys, signatures, and status flags.
 - Crypto module: wrap Arduino-accessible mbedTLS/ESP32 core APIs for SHA-256, ECDSA P-256, key generation, DRBG, zeroization, and error mapping.
 - Credential storage module: store and load credential records, counters, wrapping metadata, schema version, and reset state.
-- User presence module: debounce BOOT, manage timeout/cancel, and publish state to CTAP keepalive and AMOLED UI.
+- User presence module: debounce BOOT, manage timeout/cancel, and publish state to CTAP keepalive and board UI.
 - Device lifecycle/reset module: handle first boot, device UUID/AAGUID placeholder, reset ceremony, and factory wipe.
 - Logging/debug module: keep secret-free logs; compile out verbose USB/crypto/credential logging in hardened builds.
 
@@ -165,6 +167,8 @@ Expected command shape:
 arduino-cli core update-index
 arduino-cli compile --profile fido-lab /Users/cypher/Documents/GitHub/esp32-key
 arduino-cli upload --profile fido-lab -p /dev/cu.usbmodemXXXX /Users/cypher/Documents/GitHub/esp32-key
+arduino-cli compile --profile fido-lab-147 /Users/cypher/Documents/GitHub/esp32-key
+arduino-cli upload --profile fido-lab-147 -p /dev/cu.usbmodemXXXX /Users/cypher/Documents/GitHub/esp32-key
 ```
 
 ## 7. MVP Protocol Scope
@@ -191,7 +195,7 @@ Required or likely required CTAPHID support:
 | `CTAPHID_CANCEL` | Required | Cancel active operation, especially while waiting for user presence. |
 | `CTAPHID_ERROR` | Required response | Report invalid command, bad sequence, bad length, timeout, channel busy, and other transport failures. |
 | `CTAPHID_KEEPALIVE` | Required in practice | Send while processing and while waiting for BOOT press. Use user-presence-needed status where appropriate. |
-| `CTAPHID_WINK` | Optional | Nice for AMOLED/LED identification later. Defer unless browser testing needs it. |
+| `CTAPHID_WINK` | Optional | Nice for display/LED identification later. Defer unless browser testing needs it. |
 | `CTAPHID_LOCK` | Deferred | Not needed for single-user lab MVP. |
 | `CTAPHID_MSG` | Deferred | CTAP1/U2F/APDU compatibility is out of scope. |
 
@@ -202,7 +206,7 @@ Required or likely required CTAP2 support:
 | `authenticatorGetInfo` | Required | Advertise versions, extensions/options, transports, algorithms, max message size, and user-presence-only limits. |
 | `authenticatorMakeCredential` | Required | Parse clientDataHash, RP, user, pubKeyCredParams, excludeList, options, and extensions enough to reject unsupported features cleanly. |
 | `authenticatorGetAssertion` | Required | Support non-resident allow-list lookup, discoverable credentials, user presence, authenticator data, ES256 signature, and resident-user privacy when UV is false. |
-| `authenticatorReset` | Required but guarded | Require strong physical confirmation and clear AMOLED warning; erase credentials, lab PIN state, and rotate the stateless master secret. |
+| `authenticatorReset` | Required but guarded | Require strong physical confirmation and clear display warning; erase credentials, lab PIN state, and rotate the stateless master secret. |
 | `authenticatorClientPIN` | Lab implemented | Host-entered PIN protocol 2 for UV-required lab flows; no device-side PIN entry and no hardened PIN storage. |
 | Credential management | Lab implemented | Minimal resident-credential enumeration, delete, and user-info update coverage for lab management. |
 | Selection, bio enrollment, large blobs | Deferred | Not needed for MVP. |
@@ -298,7 +302,7 @@ Credential record format:
 | `rp_id` | UTF-8 string | Relying party ID, such as `example.com`. |
 | `rp_id_hash` | 32 bytes | SHA-256 of RP ID; stored to avoid recomputing and for exact matching. |
 | `user_handle` | byte string | User handle from makeCredential. |
-| `user_name` | optional string | Display-only hint for AMOLED UI; do not rely on it for security. Do not return it in assertions unless UV/PIN completed. |
+| `user_name` | optional string | Display-only hint for board UI; do not rely on it for security. Do not return it in assertions unless UV/PIN completed. |
 | `display_name` | optional string | Display-only hint for consent screens. Do not return it in assertions unless UV/PIN completed. |
 | `private_key` | P-256 scalar or wrapped blob | Credential private key. |
 | `public_key` | P-256 x/y or COSE_Key | Optional cached public key for diagnostics/reconstruction. |
@@ -318,7 +322,7 @@ Storage limits:
 - Reserve a dedicated NVS namespace such as `fido_creds`.
 - Cap records to a small fixed number at first, such as 16 or 32 credentials, to simplify wear and UI.
 - Keep each record bounded. Reject oversized user fields from CTAP2 requests.
-- Track storage-full errors explicitly and show a clear AMOLED error.
+- Track storage-full errors explicitly and show a clear display error.
 
 NVS and flash layout:
 
@@ -347,7 +351,7 @@ More secure later model:
 
 ## 10. User Presence and UX
 
-The authenticator must be understandable while remaining small. The AMOLED display should make consent visible. The BOOT button should be the required user-presence action.
+The authenticator must be understandable while remaining small. The board display should make consent visible. The BOOT button should be the required user-presence action.
 
 User-presence behavior:
 
@@ -361,7 +365,7 @@ User-presence behavior:
 
 LED/display states:
 
-| State | AMOLED | Optional LED |
+| State | Display | Optional LED |
 | --- | --- | --- |
 | Idle | Device name, lock icon, credential count, USB state | Dim blue/white pulse |
 | USB connected | Small USB/FIDO status | Solid blue |
@@ -475,7 +479,7 @@ Blunt boundary: this device is for learning and local protocol exploration. Do n
 MVP lab hardening:
 
 - Keep Wi-Fi/BLE disabled unless needed for entropy seeding tests; this is a USB authenticator, not a networked authenticator.
-- Use dedicated Arduino CLI profiles in `sketch.yaml`: at minimum `debug-cdc`, `fido-lab`, and later `hardened-lab`.
+- Use dedicated Arduino CLI profiles in `sketch.yaml`: at minimum `debug-cdc`, `fido-lab`, `debug-cdc-147`, `fido-lab-147`, and later hardened/release variants if needed.
 - Avoid CDC serial in realistic HID tests; USB CDC logging changes descriptors and may interfere with host behavior.
 - Remove secret-bearing logs before using persistent test credentials.
 - Bounds-check all HID, CTAPHID, CBOR, RP, user, and credential-ID inputs.
@@ -502,6 +506,8 @@ Arduino CLI build profiles:
 | --- | --- | --- |
 | `debug-cdc` | Early USB and CTAP debugging | CDC logs allowed, no real credentials; compiled with `arduino-cli compile --profile debug-cdc`. |
 | `fido-lab` | Browser registration/login tests | HID-only, secret-free logs, plain or encrypted NVS depending on phase; primary MVP profile. |
+| `debug-cdc-147` | Touch-LCD-1.47 early USB and CTAP debugging | CDC logs allowed, no real credentials; compiled with `arduino-cli compile --profile debug-cdc-147`. |
+| `fido-lab-147` | Touch-LCD-1.47 browser registration/login tests | HID-only, secret-free logs, compact ST7789-compatible UI, BOOT/GPIO0 user presence. |
 | `hardened-lab` | Serious local testing | Secure boot, flash encryption, NVS encryption, debug restricted where Arduino tooling supports it. |
 | `release` | Not recommended for public claims | Would require audit, conformance, manufacturing controls, and certification work. |
 
@@ -522,6 +528,7 @@ Browser/platform compatibility risk table:
 | Risk | Impact | Mitigation |
 | --- | --- | --- |
 | HID descriptor does not match FIDO expectations | Browser never discovers device | Compare against CTAP HID descriptor requirements and known TinyUSB examples; test enumeration before CTAP2. |
+| Generic ESP32-S3 USB identity differs from the working Waveshare board profile | iOS or a demo relying party prompt fails before CTAP traffic reaches the authenticator | For the `fido-lab-147` profile, pin TinyUSB VID/PID to the working Waveshare AMOLED lab identity while preserving FIDO-only HID reports and interfaces. |
 | Composite CDC + HID confuses tests | Browser ignores device or logs change timing | Use HID-only profile for compatibility testing. |
 | Arduino USB API lacks enough custom HID control | FIDO HID descriptor/report shape may be blocked | First prototype task must prove custom usage page, usage, reports, and endpoints under Arduino CLI; use a small Arduino-compatible custom HID shim if required. |
 | Missing/incorrect `authenticatorGetInfo` fields | Browser rejects authenticator | Start with minimal truthful values and add only tested options. |
@@ -732,7 +739,7 @@ Deliverables:
 
 - BOOT debounce and prompt state machine.
 - Timeout/cancel handling.
-- AMOLED prompt screens.
+- Board display prompt screens, with compact layout for the 1.47 LCD profile.
 
 Acceptance criteria:
 
@@ -806,7 +813,8 @@ Estimated inexpensive MVP parts:
 
 | Item | Purpose | Notes |
 | --- | --- | --- |
-| Waveshare ESP32-S3-Touch-AMOLED-1.8 | Main board | Preferred target; includes display, touch, buttons, flash, PSRAM, USB-C. |
+| Waveshare ESP32-S3-Touch-AMOLED-1.8 | Primary board | Preferred target; includes display, touch, buttons, flash, PSRAM, USB-C. |
+| Waveshare ESP32-S3-Touch-LCD-1.47 | Secondary board profile | Compact display target using `fido-lab-147`; keep BOOT accessible for user presence. |
 | USB-C data cable | Host connection | Must support data, not charge-only. |
 | Small enclosure | Physical handling | Should leave BOOT accessible and show display. |
 | Optional external tactile button | User presence | Useful if BOOT is inconvenient in an enclosure. |
@@ -845,6 +853,8 @@ Estimated inexpensive MVP parts:
 | ESP-IDF NVS Flash/NVS Encryption | https://docs.espressif.com/projects/esp-idf/en/release-v4.4/esp32s3/api-reference/storage/nvs_flash.html | NVS encryption model, NVS key partition, flash encryption prerequisite | Primary vendor | Use version-matched docs during implementation. |
 | Waveshare ESP32-S3-Touch-AMOLED-1.8 wiki | https://www.waveshare.com/wiki/ESP32-S3-Touch-AMOLED-1.8 | Board features, Arduino setup, ESP32 Arduino core >=3.0.6, BOOT/PWR behavior, display/touch libraries, flashing/debug notes | Primary vendor | Use to verify board-specific pins, libraries, and peripherals. |
 | Waveshare ESP32-S3-Touch-AMOLED-1.8 product page | https://www.waveshare.com/product/arduino/displays/esp32-s3-touch-amoled-1.8.htm | Hardware summary: ESP32-S3R8, display, PSRAM, flash, peripherals, USB-C | Primary vendor | Product pages can lag revisions; verify physical board. |
+| Waveshare ESP32-S3-Touch-LCD-1.47 wiki | https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-1.47 | Board features, Arduino setup, display/touch pins, BOOT behavior, flashing/debug notes | Primary vendor | Use to verify 1.47 board-specific pins, libraries, and peripherals. |
+| Waveshare ESP32-S3-Touch-LCD-1.47 Arduino setup | https://docs.waveshare.com/ESP32-S3-Touch-LCD-1.47/Development-Environment-Setup-Arduino | Arduino development flow for the 1.47 board | Primary vendor | Keep aligned with the Arduino CLI profile instead of adding PlatformIO or ESP-IDF scaffolding. |
 | Google OpenSK | https://github.com/google/OpenSK | Reference authenticator architecture and testing ideas | Reputable reference | Reference only; not a drop-in ESP32-S3 codebase. |
 | SoloKeys Solo firmware | https://github.com/solokeys/solo | Reference FIDO2/U2F firmware architecture | Reputable reference | Reference only; different MCU and security model. |
 | TinyUSB project | https://github.com/hathach/tinyusb | USB HID implementation reference and examples | Reputable open source | Reference only unless an Arduino-compatible shim is needed. |
@@ -854,11 +864,11 @@ Estimated inexpensive MVP parts:
 
 Recommended MVP:
 
-- Build an Arduino CLI-only HID FIDO authenticator sketch for the Waveshare ESP32-S3-Touch-AMOLED-1.8.
+- Build an Arduino CLI-only HID FIDO authenticator sketch for the supported Waveshare ESP32-S3 display-board profiles.
 - Implement CTAPHID INIT/PING/CBOR/CANCEL/ERROR/KEEPALIVE.
 - Implement CTAP2 getInfo, makeCredential, getAssertion, and physically guarded reset.
 - Use ES256/P-256, SHA-256, and non-resident credentials stored in local NVS behind random credential IDs.
-- Require BOOT button user presence and use the AMOLED screen for clear, minimal consent prompts.
+- Require BOOT button user presence and use the board display for clear, minimal consent prompts.
 - Test only against owned local accounts and demo relying parties.
 
 Top 5 technical risks:
